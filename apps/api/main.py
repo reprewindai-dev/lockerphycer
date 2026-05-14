@@ -16,6 +16,7 @@ from core.config.settings import settings
 from core.database.database import engine, Base
 from core.security.middleware import SecurityMiddleware
 from apps.api.routers import auth, users, security, monitoring, ai
+from apps.api.routers.verticals import router as verticals_router
 from core.utils.logging import setup_logging
 
 
@@ -160,6 +161,7 @@ app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
 app.include_router(security.router, prefix="/api/v1/security", tags=["Security"])
 app.include_router(monitoring.router, prefix="/api/v1/monitoring", tags=["Monitoring"])
 app.include_router(ai.router, prefix="/api/v1/ai", tags=["AI Services"])
+app.include_router(verticals_router, prefix="/api/v1/verticals", tags=["Verticals"])
 
 
 if __name__ == "__main__":
