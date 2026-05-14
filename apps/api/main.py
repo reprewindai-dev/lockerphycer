@@ -3,10 +3,13 @@ Locker Phycer - Main FastAPI Application
 AI-Powered Security Platform
 """
 
+from pathlib import Path
+
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import uvicorn
 import logging
@@ -155,6 +158,19 @@ async def root():
     }
 
 
+# ── Landing page ──────────────────────────────────────────────────────────────
+_LANDING_DIR = Path(__file__).resolve().parent.parent / "web" / "landing"
+
+
+@app.get("/landing", response_class=HTMLResponse, tags=["Landing"])
+async def landing_page():
+    """Serve the LockerSphere landing page."""
+    index = _LANDING_DIR / "index.html"
+    if index.exists():
+        return HTMLResponse(index.read_text())
+    return HTMLResponse("<h1>Landing page not found</h1>", status_code=404)
+
+
 # Include routers
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
@@ -162,6 +178,9 @@ app.include_router(security.router, prefix="/api/v1/security", tags=["Security"]
 app.include_router(monitoring.router, prefix="/api/v1/monitoring", tags=["Monitoring"])
 app.include_router(ai.router, prefix="/api/v1/ai", tags=["AI Services"])
 app.include_router(verticals_router, prefix="/api/v1/verticals", tags=["Verticals"])
+
+from apps.api.routers.marketplace_catalog import router as marketplace_catalog_router
+app.include_router(marketplace_catalog_router, prefix="/api/v1", tags=["Marketplace Catalog"])
 
 
 if __name__ == "__main__":
