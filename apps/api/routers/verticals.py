@@ -58,7 +58,7 @@ async def compare_verticals(
         try:
             vtype = VerticalType(type_str)
         except ValueError:
-            raise HTTPException(status_code=400, detail=f"Unknown vertical: {type_str}")
+            raise HTTPException(status_code=400, detail=f"Unknown vertical: {type_str}") from None
         cfg = get_vertical(vtype)
         comparison.append({
             "vertical_type": cfg.vertical_type.value,
@@ -90,6 +90,6 @@ async def get_vertical_config(vertical_type: str):
         raise HTTPException(
             status_code=404,
             detail=f"Unknown vertical: {vertical_type}. Available: {list_vertical_types()}",
-        )
+        ) from None
     cfg = get_vertical(vtype)
     return cfg.to_dict()
