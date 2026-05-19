@@ -98,9 +98,20 @@ async def proxy(path: str, request: Request, db: AsyncSession = Depends(get_db))
         if k.lower() not in HOP_HEADERS and k.lower() != "content-encoding"
     }
 
+    content = resp.content
+    content_type = resp.headers.get("content-type", "")
+
+    # Rewrite HTML responses to inject <base> so relative asset URLs
+    # (e.g. /assets/index-xxx.js) resolve through the proxy prefix.
+    if "text/html" in content_type and content:
+        html = content.decode("utf-8", errors="replace")
+        if "<head>" in html and "<base " not in html:
+            html = html.replace("<head>", '<head><base href="/gpc-engine/">', 1)
+            content = html.encode("utf-8")
+
     return Response(
-        content=resp.content,
+        content=content,
         status_code=resp.status_code,
         headers=resp_headers,
-        media_type=resp.headers.get("content-type"),
+        media_type=content_type or None,
     )
