@@ -17,7 +17,7 @@ from pathlib import Path
 from core.config.settings import settings
 from core.database.database import engine, Base
 from apps.api.routers import auth, users, security, monitoring, ai
-from apps.api.routers import workspace, marketplace, billing, gpc, platform_pulse, feedback, command_center
+from apps.api.routers import workspace, marketplace, billing, gpc, gpc_proxy, platform_pulse, feedback, command_center
 from core.utils.logging import setup_logging
 
 
@@ -135,6 +135,7 @@ app.include_router(workspace.router, prefix="/api/v1/workspace", tags=["Workspac
 app.include_router(marketplace.router, prefix="/api/v1/marketplace", tags=["Marketplace"])
 app.include_router(billing.router, prefix="/api/v1/billing", tags=["Billing"])
 app.include_router(gpc.router, prefix="/api/v1/gpc", tags=["GPC"])
+app.include_router(gpc_proxy.router, prefix="/gpc-engine", tags=["GPC Proxy"])
 app.include_router(platform_pulse.router, prefix="/api/v1/platform", tags=["Platform"])
 app.include_router(feedback.router, prefix="/api/v1/feedback", tags=["Feedback"])
 app.include_router(command_center.router, prefix="/api/v1/command-center", tags=["Command Center"])
