@@ -92,9 +92,9 @@
           <button id="gpc-back-btn" style="padding:8px 16px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:rgba(255,255,255,0.6);font-size:11px;text-transform:uppercase;letter-spacing:0.15em;cursor:pointer;border-radius:6px;margin-top:16px;">← Back to Workspace</button>
         </div>
 
-        <!-- Main: Deterministic Engine (uacpgemini) -->
-        <div style="flex:1;position:relative;">
-          <iframe id="gpc-engine-frame" src="${UACPGEMINI_URL}" style="width:100%;height:100%;border:none;background:#050505;" allow="clipboard-read;clipboard-write"></iframe>
+        <!-- Main: Deterministic Engine center black box only (left/right columns hidden) -->
+        <div style="flex:1;position:relative;overflow:hidden;">
+          <iframe id="gpc-engine-frame" src="${UACPGEMINI_URL}" style="width:200%;height:100%;border:none;background:#050505;transform:translateX(-25%);" allow="clipboard-read;clipboard-write"></iframe>
         </div>
       </div>
     `;
