@@ -430,7 +430,9 @@ body {
 
 <script>
 // ─── STATE ──────────────────────────────────────────
-const API = '/api/v1/command-center';
+// Support split deploy: Vercel frontend + Hetzner/Coolify backend
+const API_BASE = window.__VEKLOM_API_BASE__ || '';
+const API = API_BASE + '/api/v1/command-center';
 const ADMIN = 'reprewindai@gmail.com';
 let currentPage = 'overview';
 

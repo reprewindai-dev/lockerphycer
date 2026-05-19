@@ -54,6 +54,8 @@ from apps.api.routers import auth, users, security, monitoring, ai
 from apps.api.routers import workspace, marketplace, billing, gpc, gpc_proxy, platform_pulse, feedback, command_center
 from apps.api.routers.verticals import router as verticals_router
 from apps.api.routers import terminal_ws
+from apps.api.routers import agents as agents_router
+from apps.api.routers import actors as actors_router
 from core.utils.logging import setup_logging
 
 
@@ -196,6 +198,8 @@ app.include_router(gpc_proxy.router, prefix="/gpc-engine", tags=["GPC Proxy"])
 app.include_router(platform_pulse.router, prefix="/api/v1/platform", tags=["Platform"])
 app.include_router(feedback.router, prefix="/api/v1/feedback", tags=["Feedback"])
 app.include_router(command_center.router, prefix="/api/v1/command-center", tags=["Command Center"])
+app.include_router(agents_router.router, prefix="/api/v1/agents", tags=["Agent Workforce"])
+app.include_router(actors_router.router, prefix="/api/v1", tags=["Execution Packs"])
 app.include_router(terminal_ws.router, tags=["Terminal WebSocket"])
 
 from apps.api.routers.marketplace_catalog import router as marketplace_catalog_router
