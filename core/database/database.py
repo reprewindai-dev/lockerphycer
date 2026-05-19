@@ -17,29 +17,27 @@ class Base(DeclarativeBase):
     pass
 
 
-# Create async engine for database operations
-engine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=settings.DEBUG,
-    pool_size=20,
-    max_overflow=30,
-    pool_timeout=30,
-    pool_recycle=3600,
-    future=True
-)
+# Build engine kwargs based on database type
+_is_sqlite = settings.DATABASE_URL.startswith("sqlite")
+_engine_kwargs: dict = {"echo": settings.DEBUG, "future": True}
+if not _is_sqlite:
+    _engine_kwargs.update(pool_size=20, max_overflow=30, pool_timeout=30, pool_recycle=3600)
 
-# Create session factory
+engine = create_async_engine(settings.DATABASE_URL, **_engine_kwargs)
+
 AsyncSessionLocal = async_sessionmaker(
     engine,
     class_=AsyncSession,
     expire_on_commit=False
 )
 
-# Create sync engine for migrations
-sync_engine = create_engine(
-    settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://"),
-    echo=settings.DEBUG
-)
+_sync_url = settings.DATABASE_URL
+if "asyncpg" in _sync_url:
+    _sync_url = _sync_url.replace("postgresql+asyncpg://", "postgresql://")
+elif "aiosqlite" in _sync_url:
+    _sync_url = _sync_url.replace("sqlite+aiosqlite://", "sqlite://")
+
+sync_engine = create_engine(_sync_url, echo=settings.DEBUG)
 
 SessionLocal = sessionmaker(
     autocommit=False,
