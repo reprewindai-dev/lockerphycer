@@ -3,6 +3,8 @@ Veklom Sovereign AI Hub — Main FastAPI Application
 Backend source of truth: lockerphycer
 """
 
+from pathlib import Path
+
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
@@ -12,7 +14,6 @@ import uvicorn
 import logging
 import os
 from datetime import datetime
-from pathlib import Path
 
 from core.config.settings import settings
 from core.database.database import engine, Base
@@ -124,6 +125,19 @@ async def get_ai_services_status():
         return {"status": "unavailable", "message": "AI services offline"}
 
 
+# ── Landing page ──────────────────────────────────────────────────────────────
+_LANDING_DIR = Path(__file__).resolve().parent.parent / "web" / "landing"
+
+
+@app.get("/landing", response_class=HTMLResponse, tags=["Landing"])
+async def lockersphere_landing():
+    """Serve the LockerSphere landing page."""
+    index = _LANDING_DIR / "index.html"
+    if index.exists():
+        return HTMLResponse(index.read_text())
+    return HTMLResponse("<h1>Landing page not found</h1>", status_code=404)
+
+
 # ---------------------------------------------------------------------------
 # API Routers — source of truth endpoints
 # ---------------------------------------------------------------------------
@@ -141,6 +155,9 @@ app.include_router(platform_pulse.router, prefix="/api/v1/platform", tags=["Plat
 app.include_router(feedback.router, prefix="/api/v1/feedback", tags=["Feedback"])
 app.include_router(command_center.router, prefix="/api/v1/command-center", tags=["Command Center"])
 
+from apps.api.routers.marketplace_catalog import router as marketplace_catalog_router
+app.include_router(marketplace_catalog_router, prefix="/api/v1", tags=["Marketplace Catalog"])
+
 
 # ---------------------------------------------------------------------------
 # Static frontend serving
@@ -149,7 +166,7 @@ STATIC_DIR = Path(__file__).resolve().parent.parent / "web" / "static"
 
 
 @app.get("/", tags=["Frontend"], response_class=HTMLResponse)
-async def landing_page():
+async def veklom_landing():
     """Serve the Veklom landing page"""
     index = STATIC_DIR / "index.html"
     if index.exists():
