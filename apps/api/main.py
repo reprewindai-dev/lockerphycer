@@ -18,6 +18,7 @@ from datetime import datetime
 from core.config.settings import settings
 from core.database.database import engine, Base
 from apps.api.routers import auth, users, security, monitoring, ai
+from apps.api.routers import workspace, marketplace, billing, gpc, gpc_proxy, platform_pulse, feedback, command_center
 from apps.api.routers.verticals import router as verticals_router
 from apps.api.routers import workspace, marketplace, billing, gpc, platform_pulse, feedback, command_center
 from core.utils.logging import setup_logging
@@ -151,6 +152,7 @@ app.include_router(workspace.router, prefix="/api/v1/workspace", tags=["Workspac
 app.include_router(marketplace.router, prefix="/api/v1/marketplace", tags=["Marketplace"])
 app.include_router(billing.router, prefix="/api/v1/billing", tags=["Billing"])
 app.include_router(gpc.router, prefix="/api/v1/gpc", tags=["GPC"])
+app.include_router(gpc_proxy.router, prefix="/gpc-engine", tags=["GPC Proxy"])
 app.include_router(platform_pulse.router, prefix="/api/v1/platform", tags=["Platform"])
 app.include_router(feedback.router, prefix="/api/v1/feedback", tags=["Feedback"])
 app.include_router(command_center.router, prefix="/api/v1/command-center", tags=["Command Center"])
@@ -163,6 +165,8 @@ app.include_router(marketplace_catalog_router, prefix="/api/v1", tags=["Marketpl
 # Static frontend serving
 # ---------------------------------------------------------------------------
 STATIC_DIR = Path(__file__).resolve().parent.parent / "web" / "static"
+WORKSPACE_DIR = STATIC_DIR / "workspace"
+CC_DIR = STATIC_DIR / "command-center"
 
 
 @app.get("/", tags=["Frontend"], response_class=HTMLResponse)
@@ -174,24 +178,20 @@ async def veklom_landing():
     return HTMLResponse("<h1>Veklom Sovereign AI Hub</h1><p>Frontend not built yet.</p>")
 
 
-# Mount static assets if the directory exists
+# Mount landing-page static assets
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-# SPA catch-all for frontend routes
-@app.get("/workspace/{rest:path}", tags=["Frontend"], response_class=HTMLResponse)
-@app.get("/gpc", tags=["Frontend"], response_class=HTMLResponse)
-@app.get("/command-center/{rest:path}", tags=["Frontend"], response_class=HTMLResponse)
-@app.get("/pricing", tags=["Frontend"], response_class=HTMLResponse)
-@app.get("/uptime", tags=["Frontend"], response_class=HTMLResponse)
-async def spa_routes(request: Request, rest: str = ""):
-    workspace_html = STATIC_DIR / "workspace.html"
-    if workspace_html.exists():
-        return FileResponse(workspace_html, media_type="text/html")
-    index = STATIC_DIR / "index.html"
-    if index.exists():
-        return FileResponse(index, media_type="text/html")
-    return HTMLResponse("<h1>Veklom</h1><p>Page not found</p>", status_code=404)
+
+# Command Center terminal static files (must be mounted before workspace catch-all)
+if CC_DIR.exists():
+    app.mount("/command-center", StaticFiles(directory=str(CC_DIR), html=True), name="command-center")
+
+
+# Workspace: serve the real Veklom frontend build (StaticFiles with html=True
+# handles index.html fallback and trailing-slash redirect automatically)
+if WORKSPACE_DIR.exists():
+    app.mount("/workspace", StaticFiles(directory=str(WORKSPACE_DIR), html=True), name="workspace")
 
 
 if __name__ == "__main__":
