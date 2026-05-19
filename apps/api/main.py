@@ -144,6 +144,7 @@ app.include_router(command_center.router, prefix="/api/v1/command-center", tags=
 # Static frontend serving
 # ---------------------------------------------------------------------------
 STATIC_DIR = Path(__file__).resolve().parent.parent / "web" / "static"
+WORKSPACE_DIR = STATIC_DIR / "workspace"
 
 
 @app.get("/", tags=["Frontend"], response_class=HTMLResponse)
@@ -155,24 +156,15 @@ async def landing_page():
     return HTMLResponse("<h1>Veklom Sovereign AI Hub</h1><p>Frontend not built yet.</p>")
 
 
-# Mount static assets if the directory exists
+# Mount landing-page static assets
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-# SPA catch-all for frontend routes
-@app.get("/workspace/{rest:path}", tags=["Frontend"], response_class=HTMLResponse)
-@app.get("/gpc", tags=["Frontend"], response_class=HTMLResponse)
-@app.get("/command-center/{rest:path}", tags=["Frontend"], response_class=HTMLResponse)
-@app.get("/pricing", tags=["Frontend"], response_class=HTMLResponse)
-@app.get("/uptime", tags=["Frontend"], response_class=HTMLResponse)
-async def spa_routes(request: Request, rest: str = ""):
-    workspace_html = STATIC_DIR / "workspace.html"
-    if workspace_html.exists():
-        return FileResponse(workspace_html, media_type="text/html")
-    index = STATIC_DIR / "index.html"
-    if index.exists():
-        return FileResponse(index, media_type="text/html")
-    return HTMLResponse("<h1>Veklom</h1><p>Page not found</p>", status_code=404)
+
+# Workspace: serve the real Veklom frontend build (StaticFiles with html=True
+# handles index.html fallback and trailing-slash redirect automatically)
+if WORKSPACE_DIR.exists():
+    app.mount("/workspace", StaticFiles(directory=str(WORKSPACE_DIR), html=True), name="workspace")
 
 
 if __name__ == "__main__":
