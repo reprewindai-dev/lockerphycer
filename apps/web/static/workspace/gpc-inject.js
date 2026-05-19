@@ -1,13 +1,13 @@
 /**
  * GPC — Governed Plan Compiler
  * 1. Injects a "GPC" link into the sidebar between Playground and Marketplace.
- * 2. When #/gpc is active, HIDES the <main> children and appends a GPC div.
+ * 2. When #/gpc is active, HIDES the <main> children and shows the user's
+ *    Deterministic Engine (uacpgemini) full-width inside <main>.
  *    The sidebar (aside) and header stay exactly as on every other page.
  * 3. When navigating away, removes the GPC div and un-hides the originals.
  */
 (function () {
   'use strict';
-  var GPC_API = window.__VEKLOM_API_BASE__ || '/api/v1';
   var UACPGEMINI_URL = 'https://uacpgemini.onrender.com';
 
   /* ================================================================
@@ -74,7 +74,7 @@
   function showGPC() {
     var main = getMain();
     if (!main) return;
-    if (document.getElementById('gpc-page')) return; // already showing
+    if (document.getElementById('gpc-page')) return;
 
     // Hide all existing children of <main>
     for (var i = 0; i < main.children.length; i++) {
@@ -82,44 +82,15 @@
       main.children[i].style.display = 'none';
     }
 
-    // Create GPC container — centered, full-width layout
+    // Create GPC container — user's Deterministic Engine full-width
     var gpc = document.createElement('div');
     gpc.id = 'gpc-page';
-    gpc.style.cssText = 'display:flex;flex-direction:column;flex:1;height:100%;min-height:0;background:#0a0a0a;overflow-y:auto;';
+    gpc.style.cssText = 'flex:1;height:100%;min-height:0;position:relative;background:#050505;';
 
     gpc.innerHTML =
-      // Header bar
-      '<div style="padding:28px 40px 0;max-width:1100px;width:100%;margin:0 auto;box-sizing:border-box;">' +
-        '<div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;">' +
-          '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>' +
-          '<span style="font-size:20px;font-weight:700;letter-spacing:0.02em;color:#e0e0e0;">Governed Plan Compiler</span>' +
-        '</div>' +
-        '<p style="font-size:10px;text-transform:uppercase;letter-spacing:0.25em;color:rgba(255,255,255,0.3);font-weight:600;margin:0 0 24px 40px;">Intent \u2192 Policy \u2192 Risk \u2192 Cost \u2192 Deploy</p>' +
-      '</div>' +
-      // Two-column body
-      '<div style="display:flex;gap:28px;flex:1;min-height:0;padding:0 40px 32px;max-width:1100px;width:100%;margin:0 auto;box-sizing:border-box;">' +
-        // Left column — compile form + results
-        '<div style="flex:1;display:flex;flex-direction:column;gap:20px;min-width:0;">' +
-          '<div style="background:#0d0c0a;border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:24px;">' +
-            '<label style="font-size:10px;text-transform:uppercase;letter-spacing:0.2em;color:rgba(255,255,255,0.25);font-weight:700;display:block;margin-bottom:12px;">Compile Intent</label>' +
-            '<textarea id="gpc-intent" placeholder="Describe your AI workflow intent..." style="width:100%;height:120px;background:#050505;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:14px;color:#e0e0e0;font-size:14px;resize:none;outline:none;font-family:inherit;box-sizing:border-box;line-height:1.5;"></textarea>' +
-            '<button id="gpc-compile-btn" style="width:100%;margin-top:12px;padding:12px;background:#f97316;color:#000;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:0.3em;border:none;cursor:pointer;border-radius:8px;transition:opacity .15s;">Compile Plan</button>' +
-          '</div>' +
-          '<div id="gpc-result" style="display:none;background:#0d0c0a;border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:24px;">' +
-            '<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.2em;color:rgba(255,255,255,0.25);font-weight:700;margin-bottom:12px;">Compiled Plan</div>' +
-            '<div id="gpc-result-content" style="font-size:13px;"></div>' +
-          '</div>' +
-          '<div style="background:#0d0c0a;border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:24px;flex:1;min-height:120px;">' +
-            '<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.2em;color:rgba(255,255,255,0.25);font-weight:700;margin-bottom:12px;">Previous Plans</div>' +
-            '<div id="gpc-plans-list" style="font-size:12px;color:rgba(255,255,255,0.4);"></div>' +
-          '</div>' +
-        '</div>' +
-        // Right column — Deterministic Engine
-        '<div style="flex:1;min-width:0;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden;position:relative;min-height:400px;background:#050505;">' +
-          '<div style="position:absolute;top:12px;left:16px;z-index:2;font-size:9px;text-transform:uppercase;letter-spacing:0.2em;color:rgba(255,255,255,0.2);font-weight:700;pointer-events:none;">Deterministic Engine</div>' +
-          '<iframe id="gpc-engine-frame" src="' + UACPGEMINI_URL + '" style="width:300%;height:100%;border:none;background:#050505;position:absolute;left:-100%;top:0;" allow="clipboard-read;clipboard-write"></iframe>' +
-        '</div>' +
-      '</div>';
+      '<iframe id="gpc-engine-frame" src="' + UACPGEMINI_URL + '" ' +
+        'style="width:100%;height:100%;border:none;background:#050505;" ' +
+        'allow="clipboard-read;clipboard-write"></iframe>';
 
     main.appendChild(gpc);
 
@@ -128,16 +99,6 @@
     main.style.display = 'flex';
     main.style.flexDirection = 'column';
     main.style.overflow = 'hidden';
-
-    // Wire events
-    var compileBtn = document.getElementById('gpc-compile-btn');
-    var intentInput = document.getElementById('gpc-intent');
-    if (compileBtn) compileBtn.addEventListener('click', compileGPC);
-    if (intentInput) intentInput.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); compileGPC(); }
-    });
-
-    fetchPlans();
   }
 
   function hideGPC() {
@@ -145,7 +106,6 @@
     if (!gpc) return;
 
     var main = getMain();
-    // Remove GPC container
     gpc.parentNode.removeChild(gpc);
 
     // Un-hide original children
@@ -155,87 +115,11 @@
         hidden[i].style.display = '';
         hidden[i].removeAttribute('data-gpc-hidden');
       }
-      // Reset main styles
       main.style.flex = '';
       main.style.display = '';
       main.style.flexDirection = '';
       main.style.overflow = '';
     }
-  }
-
-  /* ================================================================
-   *  GPC compile / results / plans
-   * ================================================================ */
-  function compileGPC() {
-    var input = document.getElementById('gpc-intent');
-    var btn = document.getElementById('gpc-compile-btn');
-    if (!input || !btn) return;
-    var intent = input.value.trim();
-    if (!intent) return;
-
-    btn.textContent = 'COMPILING\u2026';
-    btn.disabled = true;
-
-    fetch(GPC_API + '/gpc/compile?intent=' + encodeURIComponent(intent), { method: 'POST' })
-      .then(function (res) { if (!res.ok) throw new Error('Compilation failed'); return res.json(); })
-      .then(function (data) { input.value = ''; showResult(data); fetchPlans(); })
-      .catch(function (err) { showResult({ error: err.message }); })
-      .finally(function () { btn.textContent = 'COMPILE PLAN'; btn.disabled = false; });
-  }
-
-  function showResult(data) {
-    var container = document.getElementById('gpc-result');
-    var content = document.getElementById('gpc-result-content');
-    if (!container || !content) return;
-    container.style.display = 'block';
-
-    if (data.error) {
-      content.innerHTML = '<div style="color:#f87171;padding:8px;border:1px solid rgba(248,113,113,0.2);border-radius:6px;">' + data.error + '</div>';
-      return;
-    }
-
-    var html = '<div style="padding:10px;border:1px solid rgba(34,197,94,0.2);border-radius:8px;background:rgba(34,197,94,0.03);">';
-    html += '<div style="color:#4ade80;font-size:10px;font-family:monospace;text-transform:uppercase;letter-spacing:0.2em;margin-bottom:8px;">Plan ' + (data.id ? data.id.slice(0, 8) : '\u2014') + ' \u2014 ' + data.status + '</div>';
-
-    if (data.compiled_plan && data.compiled_plan.workflow_steps) {
-      html += '<div style="margin-bottom:8px;">';
-      data.compiled_plan.workflow_steps.forEach(function (s) {
-        html += '<div style="display:flex;align-items:center;gap:8px;padding:3px 0;"><span style="width:18px;height:18px;border-radius:50%;border:1px solid rgba(249,115,22,0.3);display:flex;align-items:center;justify-content:center;font-size:9px;color:#f97316;font-family:monospace;">' + s.step + '</span><span style="color:rgba(255,255,255,0.6);font-size:11px;">' + s.action + '</span></div>';
-      });
-      html += '</div>';
-    }
-
-    if (data.risks) {
-      html += '<div style="font-size:9px;color:#f97316;text-transform:uppercase;letter-spacing:0.2em;margin:8px 0 4px;">Risks</div>';
-      data.risks.forEach(function (r) {
-        var col = r.severity === 'critical' ? '#ef4444' : r.severity === 'high' ? '#f97316' : '#eab308';
-        html += '<div style="font-size:10px;padding:4px 0;"><span style="color:' + col + ';font-family:monospace;text-transform:uppercase;font-size:8px;border:1px solid ' + col + '33;padding:1px 4px;border-radius:3px;">' + r.severity + '</span> <span style="color:rgba(255,255,255,0.5);margin-left:4px;">' + r.risk + '</span></div>';
-      });
-    }
-
-    if (data.cost_estimate) {
-      html += '<div style="border-top:1px solid rgba(255,255,255,0.05);margin-top:8px;padding-top:8px;"><span style="font-size:9px;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:0.15em;">Total</span> <span style="font-size:16px;font-weight:700;color:rgba(255,255,255,0.8);margin-left:8px;">' + data.cost_estimate.total_estimated + '</span></div>';
-    }
-
-    html += '</div>';
-    content.innerHTML = html;
-  }
-
-  function fetchPlans() {
-    fetch(GPC_API + '/gpc/plans')
-      .then(function (res) { return res.json(); })
-      .then(function (plans) {
-        var list = document.getElementById('gpc-plans-list');
-        if (!list) return;
-        if (!plans.length) { list.innerHTML = '<div style="color:rgba(255,255,255,0.15);font-style:italic;">No plans yet</div>'; return; }
-        list.innerHTML = plans.map(function (p) {
-          return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border:1px solid rgba(255,255,255,0.05);border-radius:4px;margin-bottom:4px;cursor:default;">' +
-            '<div><span style="font-family:monospace;font-size:9px;color:rgba(255,255,255,0.2);">' + (p.id ? p.id.slice(0, 8) : '') + '</span> <span style="color:rgba(255,255,255,0.5);margin-left:6px;font-size:11px;">' + (p.intent ? (p.intent.length > 40 ? p.intent.slice(0, 40) + '...' : p.intent) : '') + '</span></div>' +
-            '<span style="font-size:8px;font-family:monospace;text-transform:uppercase;color:' + (p.status === 'compiled' ? '#4ade80' : '#f97316') + ';border:1px solid ' + (p.status === 'compiled' ? 'rgba(74,222,128,0.3)' : 'rgba(249,115,22,0.3)') + ';padding:1px 6px;border-radius:3px;">' + p.status + '</span>' +
-          '</div>';
-        }).join('');
-      })
-      .catch(function () {});
   }
 
   /* ================================================================
