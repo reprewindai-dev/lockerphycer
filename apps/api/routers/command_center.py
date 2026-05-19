@@ -8,6 +8,7 @@ from typing import Optional
 
 from core.database.database import get_db
 from core.config.settings import settings
+from core.security.auth import require_admin
 from db.models import (
     User,
     UserSession,
@@ -28,18 +29,12 @@ router = APIRouter()
 ADMIN_EMAIL = settings.ADMIN_EMAIL
 
 
-def _check_admin(caller_email: str):
-    if caller_email != ADMIN_EMAIL:
-        raise HTTPException(status_code=403, detail="Command Center: admin only")
-
-
 @router.get("/overview")
 async def command_overview(
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Admin overview dashboard with users, listings, orders, finance"""
-    _check_admin(caller_email)
     now = datetime.utcnow()
     thirty_days = now - timedelta(days=30)
 
@@ -85,9 +80,8 @@ async def command_overview(
 
 
 @router.get("/terminals/quantum")
-async def quantum_terminal_config(caller_email: str = Query(ADMIN_EMAIL)):
+async def quantum_terminal_config(admin_email: str = Depends(require_admin)):
     """Return config for the UACP Quantum Terminal (admin-only)"""
-    _check_admin(caller_email)
     return {
         "terminal": "uacp-quantum-terminal",
         "version": "1.0.0",
@@ -108,9 +102,8 @@ async def quantum_terminal_config(caller_email: str = Query(ADMIN_EMAIL)):
 
 
 @router.get("/terminals/veklom")
-async def veklom_terminal_config(caller_email: str = Query(ADMIN_EMAIL)):
+async def veklom_terminal_config(admin_email: str = Depends(require_admin)):
     """Return config for the Veklom Terminal / remix-uacp-quantum-context (admin-only)"""
-    _check_admin(caller_email)
     return {
         "terminal": "veklom-terminal",
         "version": "1.0.0",
@@ -131,9 +124,8 @@ async def veklom_terminal_config(caller_email: str = Query(ADMIN_EMAIL)):
 
 
 @router.get("/workforce/status")
-async def workforce_status(caller_email: str = Query(ADMIN_EMAIL)):
+async def workforce_status(admin_email: str = Depends(require_admin)):
     """130-agent workforce status — 114 operational + 6 control + 10 special governance"""
-    _check_admin(caller_email)
     agents = []
     categories = [
         ("Commander", 0, 0, "operational"),
@@ -183,10 +175,9 @@ async def workforce_status(caller_email: str = Query(ADMIN_EMAIL)):
 async def get_audit_log(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    _check_admin(caller_email)
     result = await db.execute(
         select(AuditLog).order_by(AuditLog.created_at.desc()).offset(skip).limit(limit)
     )
@@ -209,11 +200,10 @@ async def get_audit_log(
 # ---------------------------------------------------------------------------
 @router.get("/live-users")
 async def live_users(
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Who is online right now — active sessions within last 15 min."""
-    _check_admin(caller_email)
     cutoff = datetime.utcnow() - timedelta(minutes=15)
     result = await db.execute(
         select(UserSession)
@@ -252,11 +242,10 @@ async def user_sessions(
     user_id: Optional[str] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """User sessions with journey data."""
-    _check_admin(caller_email)
     q = select(UserSession).order_by(UserSession.created_at.desc())
     if user_id:
         q = q.where(UserSession.user_id == user_id)
@@ -283,11 +272,10 @@ async def user_sessions(
 @router.get("/activity-feed")
 async def activity_feed(
     limit: int = Query(100, ge=1, le=500),
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Recent activity across the platform — audit log + security events merged."""
-    _check_admin(caller_email)
     audit_result = await db.execute(
         select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit)
     )
@@ -326,11 +314,10 @@ async def activity_feed(
 # ---------------------------------------------------------------------------
 @router.get("/funnels")
 async def funnels(
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Product funnels — signup → workspace → playground → GPC → pipeline → deploy."""
-    _check_admin(caller_email)
     total_users = (await db.execute(select(func.count()).select_from(User))).scalar() or 0
     total_workspaces = (await db.execute(select(func.count()).select_from(Workspace))).scalar() or 0
     ai_requests = (await db.execute(select(func.count()).select_from(AIRequest))).scalar() or 0
@@ -373,10 +360,9 @@ async def funnels(
 # ---------------------------------------------------------------------------
 @router.get("/ai-hub/playground")
 async def playground_stats(
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    _check_admin(caller_email)
     total_runs = (await db.execute(select(func.count()).select_from(AIRequest))).scalar() or 0
     failed = (
         await db.execute(
@@ -393,10 +379,9 @@ async def playground_stats(
 
 @router.get("/ai-hub/gpc")
 async def gpc_stats(
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    _check_admin(caller_email)
     total = (await db.execute(select(func.count()).select_from(GPCPlan))).scalar() or 0
     drafts = (
         await db.execute(
@@ -413,10 +398,9 @@ async def gpc_stats(
 
 @router.get("/ai-hub/marketplace")
 async def marketplace_stats(
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    _check_admin(caller_email)
     total = (await db.execute(select(func.count()).select_from(MarketplaceListing))).scalar() or 0
     published = (
         await db.execute(
@@ -441,10 +425,9 @@ async def marketplace_stats(
 # ---------------------------------------------------------------------------
 @router.get("/business/billing")
 async def billing_stats(
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    _check_admin(caller_email)
     total_users = (await db.execute(select(func.count()).select_from(User))).scalar() or 0
     free_ws = (
         await db.execute(
@@ -466,10 +449,9 @@ async def billing_stats(
 # ---------------------------------------------------------------------------
 @router.get("/operations/health")
 async def operations_health(
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    _check_admin(caller_email)
     services = ["api", "database", "gpc", "marketplace", "auth"]
     results = []
     for svc in services:
@@ -492,10 +474,9 @@ async def operations_health(
 @router.get("/operations/alerts")
 async def operations_alerts(
     limit: int = Query(50, ge=1, le=200),
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    _check_admin(caller_email)
     result = await db.execute(
         select(Alert).order_by(Alert.created_at.desc()).limit(limit)
     )
@@ -516,10 +497,9 @@ async def operations_alerts(
 @router.get("/operations/errors")
 async def operations_errors(
     hours: int = Query(24, ge=1, le=720),
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    _check_admin(caller_email)
     since = datetime.utcnow() - timedelta(hours=hours)
     failed_ai = (
         await db.execute(
@@ -548,9 +528,8 @@ async def operations_errors(
 # Agents — fleet status
 # ---------------------------------------------------------------------------
 @router.get("/agents/fleet")
-async def agent_fleet(caller_email: str = Query(ADMIN_EMAIL)):
+async def agent_fleet(admin_email: str = Depends(require_admin)):
     """Fleet overview — 114 operational + 6 control + 10 special = 130 total"""
-    _check_admin(caller_email)
     groups = [
         {"name": "Commander", "range": "000", "count": 1, "tier": "operational"},
         {"name": "Core Engineers", "range": "001-008", "count": 8, "tier": "operational"},
@@ -592,16 +571,15 @@ async def agent_fleet(caller_email: str = Query(ADMIN_EMAIL)):
 # Governance — compliance / vault posture
 # ---------------------------------------------------------------------------
 @router.get("/governance/compliance")
-async def governance_compliance(caller_email: str = Query(ADMIN_EMAIL)):
+async def governance_compliance(admin_email: str = Depends(require_admin)):
     """Compliance posture with honest evidence states — no fake claims."""
-    _check_admin(caller_email)
     return {
         "policies": [
             {"name": "Data Encryption at Rest", "evidence": "configured", "detail": "SQLAlchemy engine uses encrypted connection string"},
             {"name": "JWT Token Rotation", "evidence": "configured", "detail": "JWT signing configured in settings; auto-rotation not yet wired"},
             {"name": "MFA Requirement", "evidence": "not_wired", "detail": "MFA is not implemented yet — planned for auth hardening phase"},
             {"name": "Audit Logging", "evidence": "verified", "detail": "AuditLog model + /audit-log endpoint active; AgentRun + EvidenceArtifact capture proof"},
-            {"name": "RBAC Enforcement", "evidence": "configured", "detail": "Admin check via caller_email; full RBAC with roles/permissions planned"},
+            {"name": "RBAC Enforcement", "evidence": "configured", "detail": "JWT Bearer auth + require_admin dependency active; full RBAC with roles/permissions planned"},
             {"name": "Rate Limiting", "evidence": "configured", "detail": "Middleware configured; per-route enforcement pending verification"},
             {"name": "Freeze Intel Governance", "evidence": "verified", "detail": "Persistent freeze state blocks mutations; requires CONFIRM UNFREEZE"},
             {"name": "Agent Guardrails", "evidence": "verified", "detail": "43 rules across 5 categories; penalty system with 5 severity levels"},
@@ -627,8 +605,7 @@ async def governance_compliance(caller_email: str = Query(ADMIN_EMAIL)):
 
 
 @router.get("/governance/vault")
-async def vault_posture(caller_email: str = Query(ADMIN_EMAIL)):
-    _check_admin(caller_email)
+async def vault_posture(admin_email: str = Depends(require_admin)):
     return {
         "encryption": "AES-256",
         "key_rotation_days": 90,

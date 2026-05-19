@@ -4,9 +4,10 @@ Each vertical is exposed as a structured listing payload that the Veklom
 Marketplace auto-classify / auto-validate pipeline can ingest directly.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
-from apps.verticals.registry import VerticalRegistry
+from apps.verticals.registry import list_verticals, get_vertical
+from apps.verticals.base import VerticalType
 
 router = APIRouter(prefix="/marketplace", tags=["marketplace-catalog"])
 
@@ -27,36 +28,51 @@ _VERTICAL_TIERS = {
 }
 
 
+def _config_to_dict(cfg) -> dict:
+    """Convert a VerticalConfig to a dict safely."""
+    if hasattr(cfg, "to_dict"):
+        return cfg.to_dict()
+    if isinstance(cfg, dict):
+        return cfg
+    return {}
+
+
 @router.get("/catalog")
 async def catalog():
-    """Return all verticals formatted as Veklom Marketplace listing payloads.
-
-    Each entry is compatible with the ``POST /marketplace/auto-classify``
-    and ``POST /marketplace/auto-validate`` automation endpoints on veklom.com.
-    """
-    registry = VerticalRegistry()
+    """Return all verticals formatted as Veklom Marketplace listing payloads."""
+    verticals = list_verticals()
     listings = []
 
-    for key, vertical in registry.verticals.items():
-        config = vertical.get_config()
+    for vertical in verticals:
+        config = _config_to_dict(vertical)
+        key = config.get("vertical_type", "general")
         listings.append({
             "slug": f"lockersphere-{key}",
-            "title": config["name"],
-            "description": config["description"],
+            "title": config.get("display_name", key),
+            "description": config.get("description", ""),
             "listing_type": "agent",
             "category": _category_for(key),
             "tags": _tags_for(key, config),
-            "compliance_badges": config.get("compliance_frameworks", []),
+            "compliance_badges": [
+                f.get("name", "") if isinstance(f, dict) else str(f)
+                for f in config.get("compliance_frameworks", [])
+            ],
             "price_cents": _VERTICAL_PRICES.get(key, 0),
             "currency": "usd",
             "tier": _VERTICAL_TIERS.get(key, "standard"),
             "install_payload": {
                 "type": "lockersphere_vertical",
                 "vertical_key": key,
-                "security_policy": config.get("security_policy", {}),
-                "ai_capabilities": [c["name"] for c in config.get("ai_capabilities", [])],
-                "features": [f["name"] for f in config.get("features", [])],
-                "compliance_frameworks": config.get("compliance_frameworks", []),
+                "security_policy": config.get("security", {}),
+                "ai_capabilities": [
+                    c.get("name", "") if isinstance(c, dict) else str(c)
+                    for c in config.get("ai_capabilities", [])
+                ],
+                "features": list(config.get("features", {}).keys()) if isinstance(config.get("features"), dict) else [],
+                "compliance_frameworks": [
+                    f.get("name", "") if isinstance(f, dict) else str(f)
+                    for f in config.get("compliance_frameworks", [])
+                ],
                 "rate_limit_rpm": config.get("rate_limit_rpm", 100),
             },
             "source_url": "https://github.com/reprewindai-dev/lockerphycer",
@@ -74,31 +90,41 @@ async def catalog():
 @router.get("/catalog/{vertical_key}")
 async def catalog_detail(vertical_key: str):
     """Return a single vertical as a Veklom Marketplace listing payload."""
-    registry = VerticalRegistry()
-    vertical = registry.get_vertical(vertical_key)
-    if not vertical:
-        from fastapi import HTTPException
+    try:
+        vtype = VerticalType(vertical_key)
+        vertical = get_vertical(vtype)
+    except (KeyError, ValueError):
         raise HTTPException(status_code=404, detail=f"Vertical '{vertical_key}' not found")
 
-    config = vertical.get_config()
+    config = _config_to_dict(vertical)
+    key = config.get("vertical_type", vertical_key)
     return {
-        "slug": f"lockersphere-{vertical_key}",
-        "title": config["name"],
-        "description": config["description"],
+        "slug": f"lockersphere-{key}",
+        "title": config.get("display_name", key),
+        "description": config.get("description", ""),
         "listing_type": "agent",
-        "category": _category_for(vertical_key),
-        "tags": _tags_for(vertical_key, config),
-        "compliance_badges": config.get("compliance_frameworks", []),
-        "price_cents": _VERTICAL_PRICES.get(vertical_key, 0),
+        "category": _category_for(key),
+        "tags": _tags_for(key, config),
+        "compliance_badges": [
+            f.get("name", "") if isinstance(f, dict) else str(f)
+            for f in config.get("compliance_frameworks", [])
+        ],
+        "price_cents": _VERTICAL_PRICES.get(key, 0),
         "currency": "usd",
-        "tier": _VERTICAL_TIERS.get(vertical_key, "standard"),
+        "tier": _VERTICAL_TIERS.get(key, "standard"),
         "install_payload": {
             "type": "lockersphere_vertical",
-            "vertical_key": vertical_key,
-            "security_policy": config.get("security_policy", {}),
-            "ai_capabilities": [c["name"] for c in config.get("ai_capabilities", [])],
-            "features": [f["name"] for f in config.get("features", [])],
-            "compliance_frameworks": config.get("compliance_frameworks", []),
+            "vertical_key": key,
+            "security_policy": config.get("security", {}),
+            "ai_capabilities": [
+                c.get("name", "") if isinstance(c, dict) else str(c)
+                for c in config.get("ai_capabilities", [])
+            ],
+            "features": list(config.get("features", {}).keys()) if isinstance(config.get("features"), dict) else [],
+            "compliance_frameworks": [
+                f.get("name", "") if isinstance(f, dict) else str(f)
+                for f in config.get("compliance_frameworks", [])
+            ],
             "rate_limit_rpm": config.get("rate_limit_rpm", 100),
         },
         "source_url": "https://github.com/reprewindai-dev/lockerphycer",

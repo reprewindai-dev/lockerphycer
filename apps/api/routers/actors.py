@@ -21,17 +21,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config.settings import settings
 from core.database.database import get_db
+from core.security.auth import require_admin
 from db.models import ActorDefinition, ActorRun, RuntimeMode, ActorVisibility
 
 router = APIRouter(prefix="/actors", tags=["Execution Packs"])
 logger = logging.getLogger(__name__)
 
 ADMIN_EMAIL = settings.ADMIN_EMAIL
-
-
-def _check_admin(email: str):
-    if email != ADMIN_EMAIL:
-        raise HTTPException(status_code=403, detail="Admin access required")
 
 
 # ---------------------------------------------------------------------------
@@ -102,10 +98,9 @@ async def list_actors(
     status: Optional[str] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    _check_admin(caller_email)
     q = select(ActorDefinition).order_by(desc(ActorDefinition.created_at))
     if category:
         q = q.where(ActorDefinition.category == category)
@@ -151,10 +146,9 @@ async def list_actors(
 @router.post("")
 async def create_actor(
     req: ActorCreateRequest,
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    _check_admin(caller_email)
     existing = await db.execute(
         select(ActorDefinition).where(ActorDefinition.actor_id == req.actor_id)
     )
@@ -202,10 +196,9 @@ async def create_actor(
 
 @router.get("/categories")
 async def actor_categories(
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    _check_admin(caller_email)
     rows = (await db.execute(
         select(ActorDefinition.category, func.count(ActorDefinition.id))
         .group_by(ActorDefinition.category)
@@ -216,10 +209,9 @@ async def actor_categories(
 @router.get("/search")
 async def search_actors(
     q: str = Query(""),
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    _check_admin(caller_email)
     query = select(ActorDefinition).where(
         ActorDefinition.name.ilike(f"%{q}%") | ActorDefinition.description.ilike(f"%{q}%")
     ).limit(50)
@@ -235,10 +227,9 @@ async def search_actors(
 
 @router.get("/stats")
 async def actor_stats(
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    _check_admin(caller_email)
     total_actors = (await db.execute(select(func.count(ActorDefinition.id)))).scalar() or 0
     total_runs = (await db.execute(select(func.count(ActorRun.id)))).scalar() or 0
     completed = (await db.execute(
@@ -263,10 +254,9 @@ async def actor_stats(
 @router.get("/{actor_id}")
 async def get_actor(
     actor_id: str,
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    _check_admin(caller_email)
     row = (await db.execute(
         select(ActorDefinition).where(ActorDefinition.actor_id == actor_id)
     )).scalar()
@@ -310,10 +300,9 @@ async def get_actor(
 async def update_actor(
     actor_id: str,
     updates: dict,
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    _check_admin(caller_email)
     row = (await db.execute(
         select(ActorDefinition).where(ActorDefinition.actor_id == actor_id)
     )).scalar()
@@ -336,10 +325,9 @@ async def update_actor(
 @router.delete("/{actor_id}")
 async def delete_actor(
     actor_id: str,
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    _check_admin(caller_email)
     row = (await db.execute(
         select(ActorDefinition).where(ActorDefinition.actor_id == actor_id)
     )).scalar()
@@ -358,10 +346,9 @@ async def delete_actor(
 async def run_actor(
     actor_id: str,
     req: ActorRunRequest,
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    _check_admin(caller_email)
     actor = (await db.execute(
         select(ActorDefinition).where(ActorDefinition.actor_id == actor_id)
     )).scalar()
@@ -398,10 +385,9 @@ async def list_actor_runs(
     status: Optional[str] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    _check_admin(caller_email)
     q = select(ActorRun).where(ActorRun.actor_id == actor_id).order_by(desc(ActorRun.created_at))
     if status:
         q = q.where(ActorRun.status == status)
@@ -428,10 +414,9 @@ async def list_actor_runs(
 @router.get("/runs/{run_id}")
 async def get_actor_run(
     run_id: str,
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    _check_admin(caller_email)
     run = (await db.execute(select(ActorRun).where(ActorRun.id == run_id))).scalar()
     if not run:
         raise HTTPException(404, f"Run '{run_id}' not found")
@@ -465,10 +450,9 @@ async def get_actor_run(
 @router.get("/runs/{run_id}/output")
 async def get_actor_run_output(
     run_id: str,
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    _check_admin(caller_email)
     run = (await db.execute(select(ActorRun).where(ActorRun.id == run_id))).scalar()
     if not run:
         raise HTTPException(404, f"Run '{run_id}' not found")
@@ -484,10 +468,9 @@ async def get_actor_run_output(
 @router.get("/runs/{run_id}/evidence")
 async def get_actor_run_evidence(
     run_id: str,
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    _check_admin(caller_email)
     run = (await db.execute(select(ActorRun).where(ActorRun.id == run_id))).scalar()
     if not run:
         raise HTTPException(404, f"Run '{run_id}' not found")
@@ -506,10 +489,9 @@ async def get_actor_run_evidence(
 async def complete_actor_run(
     run_id: str,
     req: ActorRunCompleteRequest,
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    _check_admin(caller_email)
     run = (await db.execute(select(ActorRun).where(ActorRun.id == run_id))).scalar()
     if not run:
         raise HTTPException(404, f"Run '{run_id}' not found")
@@ -547,10 +529,9 @@ async def complete_actor_run(
 @router.post("/{actor_id}/publish")
 async def publish_actor(
     actor_id: str,
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    _check_admin(caller_email)
     actor = (await db.execute(
         select(ActorDefinition).where(ActorDefinition.actor_id == actor_id)
     )).scalar()
@@ -569,10 +550,9 @@ async def publish_actor(
 @router.get("/{actor_id}/standby/status")
 async def standby_status(
     actor_id: str,
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    _check_admin(caller_email)
     actor = (await db.execute(
         select(ActorDefinition).where(ActorDefinition.actor_id == actor_id)
     )).scalar()
@@ -592,10 +572,9 @@ async def standby_status(
 @router.post("/{actor_id}/standby/start")
 async def start_standby(
     actor_id: str,
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    _check_admin(caller_email)
     actor = (await db.execute(
         select(ActorDefinition).where(ActorDefinition.actor_id == actor_id)
     )).scalar()
@@ -610,10 +589,9 @@ async def start_standby(
 @router.post("/{actor_id}/standby/stop")
 async def stop_standby(
     actor_id: str,
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    _check_admin(caller_email)
     actor = (await db.execute(
         select(ActorDefinition).where(ActorDefinition.actor_id == actor_id)
     )).scalar()
@@ -632,10 +610,9 @@ async def stop_standby(
 @router.get("/{actor_id}/schema/input")
 async def get_input_schema(
     actor_id: str,
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    _check_admin(caller_email)
     actor = (await db.execute(
         select(ActorDefinition).where(ActorDefinition.actor_id == actor_id)
     )).scalar()
@@ -647,10 +624,9 @@ async def get_input_schema(
 @router.get("/{actor_id}/schema/output")
 async def get_output_schema(
     actor_id: str,
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    _check_admin(caller_email)
     actor = (await db.execute(
         select(ActorDefinition).where(ActorDefinition.actor_id == actor_id)
     )).scalar()
@@ -662,10 +638,9 @@ async def get_output_schema(
 @router.get("/{actor_id}/policy")
 async def get_actor_policy(
     actor_id: str,
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    _check_admin(caller_email)
     actor = (await db.execute(
         select(ActorDefinition).where(ActorDefinition.actor_id == actor_id)
     )).scalar()
