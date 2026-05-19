@@ -146,6 +146,7 @@ app.include_router(command_center.router, prefix="/api/v1/command-center", tags=
 # ---------------------------------------------------------------------------
 STATIC_DIR = Path(__file__).resolve().parent.parent / "web" / "static"
 WORKSPACE_DIR = STATIC_DIR / "workspace"
+CC_DIR = STATIC_DIR / "command-center"
 
 
 @app.get("/", tags=["Frontend"], response_class=HTMLResponse)
@@ -160,6 +161,11 @@ async def landing_page():
 # Mount landing-page static assets
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+# Command Center terminal static files (must be mounted before workspace catch-all)
+if CC_DIR.exists():
+    app.mount("/command-center", StaticFiles(directory=str(CC_DIR), html=True), name="command-center")
 
 
 # Workspace: serve the real Veklom frontend build (StaticFiles with html=True
