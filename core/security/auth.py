@@ -225,6 +225,7 @@ def sanitize_input(input_string: str) -> str:
 
 
 def is_safe_url(url: str) -> bool:
-    """Check if URL is safe for redirect"""
-    allowed_schemes = ["http", "https"]
-    return any(url.startswith(scheme + "://") for scheme in allowed_schemes)
+    """Check if URL is safe (no javascript: / data: scheme injection)"""
+    dangerous_schemes = ["javascript:", "data:", "vbscript:", "file:"]
+    lower = url.lower().strip()
+    return not any(lower.startswith(s) for s in dangerous_schemes)

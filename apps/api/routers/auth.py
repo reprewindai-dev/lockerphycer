@@ -191,47 +191,28 @@ async def logout(
     return {"message": "Successfully logged out"}
 
 
-@router.get("/me", response_model=UserResponse)
-async def get_current_user(
-    current_user: User = Depends(get_current_user)
-):
-    """Get current user information"""
-    return UserResponse.from_orm(current_user)
-
-
-async def get_current_user(
+async def resolve_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: AsyncSession = Depends(get_db)
 ) -> User:
     """Get current authenticated user"""
-    
-    # Verify token
     payload = verify_token(credentials.credentials)
     email = payload.get("sub")
-    
     if not email:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token"
-        )
-    
-    # Find user
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
     user = await db.get(User, email)
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found"
-        )
-    
-    # Check if user is active
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     if user.status != UserStatus.ACTIVE:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Account is not active"
-        )
-    
-    # Update last activity
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account is not active")
     user.last_activity = datetime.utcnow()
     await db.commit()
-    
     return user
+
+
+@router.get("/me", response_model=UserResponse)
+async def get_current_user(
+    current_user: User = Depends(resolve_current_user)
+):
+    """Get current user information"""
+    return UserResponse.from_orm(current_user)

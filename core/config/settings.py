@@ -13,21 +13,22 @@ class Settings(BaseSettings):
     """Application settings"""
     
     # Application
-    APP_NAME: str = Field(default="Locker Phycer", env="APP_NAME")
+    APP_NAME: str = Field(default="Veklom Sovereign AI Hub", env="APP_NAME")
     VERSION: str = Field(default="1.0.0", env="VERSION")
     ENVIRONMENT: str = Field(default="development", env="ENVIRONMENT")
-    DEBUG: bool = Field(default=False, env="DEBUG")
+    DEBUG: bool = Field(default=True, env="DEBUG")
     
     # Security
-    SECRET_KEY: str = Field(..., env="SECRET_KEY")
-    AI_CITIZENSHIP_SECRET: str = Field(..., env="AI_CITIZENSHIP_SECRET")
-    ENCRYPTION_KEY: str = Field(..., env="ENCRYPTION_KEY")
+    SECRET_KEY: str = Field(default="veklom-dev-secret-key-change-in-production", env="SECRET_KEY")
+    AI_CITIZENSHIP_SECRET: str = Field(default="veklom-ai-citizenship-dev", env="AI_CITIZENSHIP_SECRET")
+    ENCRYPTION_KEY: str = Field(default="veklom-encryption-dev-key-32chars!", env="ENCRYPTION_KEY")
+    ADMIN_EMAIL: str = Field(default="reprewindai@gmail.com", env="ADMIN_EMAIL")
     
     # Database
-    DATABASE_URL: str = Field(..., env="DATABASE_URL")
+    DATABASE_URL: str = Field(default="sqlite+aiosqlite:///./veklom.db", env="DATABASE_URL")
     
     # Redis
-    REDIS_URL: str = Field(..., env="REDIS_URL")
+    REDIS_URL: str = Field(default="redis://localhost:6379/0", env="REDIS_URL")
     CELERY_BROKER_URL: str = Field(default="", env="CELERY_BROKER_URL")
     CELERY_RESULT_BACKEND: str = Field(default="", env="CELERY_RESULT_BACKEND")
     
@@ -63,7 +64,7 @@ class Settings(BaseSettings):
     # Logging
     LOG_LEVEL: str = Field(default="INFO", env="LOG_LEVEL")
     LOG_FORMAT: str = Field(default="json", env="LOG_FORMAT")
-    LOG_FILE_PATH: str = Field(default="/app/logs/lockerphycer.log", env="LOG_FILE_PATH")
+    LOG_FILE_PATH: str = Field(default="./logs/veklom.log", env="LOG_FILE_PATH")
     
     # Build info
     BUILD_DATE: str = Field(default=datetime.utcnow().isoformat(), env="BUILD_DATE")
