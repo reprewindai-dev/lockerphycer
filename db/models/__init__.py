@@ -76,6 +76,234 @@ class User(Base):
     ai_requests = relationship("AIRequest", back_populates="user")
 
 
+# ---------------------------------------------------------------------------
+# Agent Workforce models
+# ---------------------------------------------------------------------------
+
+class AgentCapability(PyEnum):
+    """Special agent capabilities — the X-Men model"""
+    EYES = "eyes"
+    ARMS = "arms"
+    LEGS = "legs"
+    ZENO = "zeno"
+    GLADIATOR = "gladiator"
+    HRM = "hrm"
+    RAG = "rag"
+    LISTENER = "listener"
+    SCIENTIST = "scientist"
+    SENTINEL = "sentinel"
+
+
+class AgentStatus(PyEnum):
+    """Agent operational status"""
+    ACTIVE = "active"
+    STANDBY = "standby"
+    FROZEN = "frozen"
+    DECOMMISSIONED = "decommissioned"
+    PENALTY = "penalty"
+
+
+class AgentDefinition(Base):
+    """Registry entry for every agent in the workforce"""
+    __tablename__ = "agent_definitions"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    agent_number = Column(Integer, unique=True, nullable=False, index=True)
+    name = Column(String, nullable=False, index=True)
+    codename = Column(String, unique=True, nullable=False, index=True)
+    group = Column(String, nullable=False, index=True)
+    phase = Column(String, nullable=False)
+    committee = Column(String, nullable=False, index=True)
+    priority = Column(String, default="MEDIUM")
+    mission = Column(Text, nullable=False)
+    capabilities = Column(JSON, default=list)
+    tools_allowed = Column(JSON, default=list)
+    tools_denied = Column(JSON, default=list)
+    guardrail_ids = Column(JSON, default=list)
+    voting_weight = Column(Float, default=1.0)
+    rank_level = Column(Integer, default=50)
+    status = Column(
+        Enum(AgentStatus), default=AgentStatus.STANDBY, index=True
+    )
+    is_control_agent = Column(Boolean, default=False)
+    config = Column(JSON, default=dict)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    runs = relationship("AgentRun", back_populates="agent")
+
+
+class AgentRun(Base):
+    """Immutable record of a single agent execution"""
+    __tablename__ = "agent_runs"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    agent_id = Column(
+        String, ForeignKey("agent_definitions.id"), nullable=False, index=True
+    )
+    agent_number = Column(Integer, nullable=False, index=True)
+    agent_name = Column(String, nullable=False)
+    group = Column(String, nullable=False)
+    task = Column(Text, nullable=False)
+    status = Column(String, default="pending", index=True)
+    tool_calls = Column(JSON, default=list)
+    cost_cents = Column(Integer, default=0)
+    tokens_used = Column(Integer, default=0)
+    errors = Column(JSON, default=list)
+    blocked_mutations = Column(JSON, default=list)
+    approval_required = Column(Boolean, default=False)
+    evidence_id = Column(String)
+    audit_hash = Column(String)
+    started_at = Column(DateTime(timezone=True), server_default=func.now())
+    ended_at = Column(DateTime(timezone=True))
+
+    agent = relationship("AgentDefinition", back_populates="runs")
+
+
+class DecisionFrame(Base):
+    """SHA-256 sealed, immutable record of agent decisions"""
+    __tablename__ = "decision_frames"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    agent_id = Column(
+        String, ForeignKey("agent_definitions.id"), nullable=False, index=True
+    )
+    agent_run_id = Column(
+        String, ForeignKey("agent_runs.id"), index=True
+    )
+    workspace_id = Column(String, ForeignKey("workspaces.id"))
+    actor = Column(String, nullable=False)
+    objective = Column(Text, nullable=False)
+    policy_pack = Column(JSON, default=dict)
+    risk_tier = Column(String, default="low")
+    tools_allowed = Column(JSON, default=list)
+    tools_denied = Column(JSON, default=list)
+    cost_estimate_cents = Column(Integer, default=0)
+    evidence_requirements = Column(JSON, default=list)
+    final_action = Column(Text)
+    proof_hash = Column(String)
+    replay_status = Column(String, default="pending")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    agent = relationship("AgentDefinition")
+    run = relationship("AgentRun")
+
+
+class AgentSignal(Base):
+    """Signals captured by listener/monitoring agents"""
+    __tablename__ = "agent_signals"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    agent_id = Column(
+        String, ForeignKey("agent_definitions.id"), nullable=False, index=True
+    )
+    signal_type = Column(String, nullable=False, index=True)
+    severity = Column(String, default="info")
+    source = Column(String, nullable=False)
+    summary = Column(Text, nullable=False)
+    details = Column(JSON, default=dict)
+    score = Column(Float, default=0.0)
+    routed_to = Column(String)
+    status = Column(String, default="open", index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+    agent = relationship("AgentDefinition")
+
+
+class AgentViolation(Base):
+    """Guardrail violation records"""
+    __tablename__ = "agent_violations"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    agent_id = Column(
+        String, ForeignKey("agent_definitions.id"), nullable=False, index=True
+    )
+    agent_run_id = Column(String, ForeignKey("agent_runs.id"))
+    guardrail_id = Column(String, nullable=False, index=True)
+    guardrail_name = Column(String, nullable=False)
+    severity = Column(String, nullable=False)
+    description = Column(Text, nullable=False)
+    evidence = Column(JSON, default=dict)
+    penalty_applied = Column(String)
+    penalty_points = Column(Integer, default=0)
+    resolved = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+    agent = relationship("AgentDefinition")
+    run = relationship("AgentRun")
+
+
+class AgentReward(Base):
+    """Incentive and reward records"""
+    __tablename__ = "agent_rewards"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    agent_id = Column(
+        String, ForeignKey("agent_definitions.id"), nullable=False, index=True
+    )
+    reward_type = Column(String, nullable=False)
+    description = Column(Text, nullable=False)
+    points = Column(Integer, default=0)
+    rank_change = Column(String)
+    voting_weight_change = Column(Float, default=0.0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    agent = relationship("AgentDefinition")
+
+
+class AgentCouncilVote(Base):
+    """Sovereign council voting records"""
+    __tablename__ = "agent_council_votes"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    agent_id = Column(
+        String, ForeignKey("agent_definitions.id"), nullable=False, index=True
+    )
+    proposal_id = Column(String, nullable=False, index=True)
+    proposal_summary = Column(Text, nullable=False)
+    vote = Column(String, nullable=False)
+    voting_weight = Column(Float, default=1.0)
+    reasoning = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    agent = relationship("AgentDefinition")
+
+
+class IntelFreezeReport(Base):
+    """Records of FREEZE_INTEL activations"""
+    __tablename__ = "intel_freeze_reports"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    initiated_by = Column(String, nullable=False)
+    snapshot_id = Column(String, nullable=False)
+    reason = Column(Text, nullable=False)
+    blocked_mutations = Column(JSON, default=list)
+    blocked_agents = Column(JSON, default=list)
+    status = Column(String, default="active", index=True)
+    confirmed_unfreeze_by = Column(String)
+    frozen_at = Column(DateTime(timezone=True), server_default=func.now())
+    unfrozen_at = Column(DateTime(timezone=True))
+
+
+class EvidenceArtifact(Base):
+    """Immutable evidence artifacts for audit trail"""
+    __tablename__ = "evidence_artifacts"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    agent_id = Column(String, ForeignKey("agent_definitions.id"), index=True)
+    agent_run_id = Column(String, ForeignKey("agent_runs.id"))
+    artifact_type = Column(String, nullable=False, index=True)
+    title = Column(String, nullable=False)
+    description = Column(Text)
+    content_hash = Column(String, nullable=False)
+    storage_path = Column(String)
+    metadata_ = Column("metadata", JSON, default=dict)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+    agent = relationship("AgentDefinition")
+    run = relationship("AgentRun")
+
+
 class UserSession(Base):
     """User session model"""
     __tablename__ = "user_sessions"
@@ -418,3 +646,135 @@ class GPCPlan(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     user = relationship("User")
+
+
+# ---------------------------------------------------------------------------
+# Execution Packs / Actor models (Apify-inspired, Veklom-native)
+# ---------------------------------------------------------------------------
+
+class RuntimeMode(PyEnum):
+    BATCH = "batch"
+    STANDBY = "standby"
+    SCHEDULED = "scheduled"
+
+
+class ActorVisibility(PyEnum):
+    PRIVATE = "private"
+    PUBLIC = "public"
+    UNLISTED = "unlisted"
+
+
+class ActorDefinition(Base):
+    """Veklom Execution Pack / Actor definition"""
+    __tablename__ = "actor_definitions"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    actor_id = Column(String, unique=True, nullable=False, index=True)
+    name = Column(String, nullable=False)
+    description = Column(Text)
+    version = Column(String, nullable=False, default="1.0.0")
+
+    # Type and classification
+    pack_type = Column(String, nullable=False, default="execution_pack")
+    category = Column(String, index=True)
+    industry = Column(String, index=True)
+
+    # Runtime
+    runtime_mode = Column(Enum(RuntimeMode), default=RuntimeMode.BATCH)
+    runtime = Column(String, default="docker")
+    entrypoint = Column(String)
+
+    # Schemas
+    input_schema = Column(JSON, default=dict)
+    output_schema = Column(JSON, default=dict)
+
+    # Policy and governance
+    policy_pack = Column(String)
+    risk_tier = Column(String, default="low")
+    evidence_required = Column(Boolean, default=False)
+    requires_human_review = Column(Boolean, default=False)
+    allowed_models = Column(JSON, default=list)
+    allowed_tools = Column(JSON, default=list)
+    denied_tools = Column(JSON, default=list)
+    cost_ceiling_cents = Column(Integer, default=100)
+
+    # Standby configuration
+    standby_enabled = Column(Boolean, default=False)
+    standby_port_env = Column(String, default="VEKLOM_STANDBY_PORT")
+    standby_readiness_path = Column(String, default="/")
+    standby_idle_timeout_seconds = Column(Integer, default=300)
+    standby_max_requests = Column(Integer, default=20)
+    standby_desired_requests = Column(Integer, default=10)
+    standby_memory_mb = Column(Integer, default=512)
+
+    # Tenant and visibility
+    visibility = Column(Enum(ActorVisibility), default=ActorVisibility.PRIVATE)
+    tenant_scoped = Column(Boolean, default=True)
+    workspace_id = Column(String, index=True)
+
+    # Marketplace
+    marketplace_installable = Column(Boolean, default=False)
+    marketplace_listing_id = Column(String)
+
+    # Creator tracking
+    created_by_agent_id = Column(String)
+    created_by_user_id = Column(String)
+
+    # Config blob
+    config = Column(JSON, default=dict)
+
+    # Status
+    status = Column(String, default="draft")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    runs = relationship("ActorRun", back_populates="actor")
+
+
+class ActorRun(Base):
+    """Individual execution of an Actor / Execution Pack"""
+    __tablename__ = "actor_runs"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    actor_def_id = Column(String, ForeignKey("actor_definitions.id"), index=True)
+    actor_id = Column(String, nullable=False, index=True)
+
+    # Runtime context
+    runtime_mode = Column(Enum(RuntimeMode), default=RuntimeMode.BATCH)
+    workspace_id = Column(String, index=True)
+    tenant_id = Column(String, index=True)
+    user_id = Column(String)
+    agent_id = Column(String)
+
+    # Input/Output
+    input_hash = Column(String)
+    output_hash = Column(String)
+    input_data = Column(JSON)
+    output_data = Column(JSON)
+
+    # Policy and governance
+    policy_result = Column(String)
+    risk_tier = Column(String)
+    model_provider = Column(String)
+    tools_used = Column(JSON, default=list)
+
+    # Metrics
+    cost_estimate_cents = Column(Integer, default=0)
+    latency_ms = Column(Integer)
+    tokens_used = Column(Integer, default=0)
+
+    # Evidence and proof
+    evidence_id = Column(String)
+    proof_hash = Column(String)
+    audit_hash = Column(String)
+
+    # Status
+    status = Column(String, default="pending", index=True)
+    error_message = Column(Text)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    started_at = Column(DateTime(timezone=True))
+    ended_at = Column(DateTime(timezone=True))
+
+    actor = relationship("ActorDefinition", back_populates="runs")

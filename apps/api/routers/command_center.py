@@ -132,40 +132,48 @@ async def veklom_terminal_config(caller_email: str = Query(ADMIN_EMAIL)):
 
 @router.get("/workforce/status")
 async def workforce_status(caller_email: str = Query(ADMIN_EMAIL)):
-    """120-agent workforce status (admin-only)"""
+    """130-agent workforce status — 114 operational + 6 control + 10 special governance"""
     _check_admin(caller_email)
     agents = []
     categories = [
-        ("Commander", 0, 0),
-        ("Core Engineers", 1, 8),
-        ("Vendor Acquisition", 10, 31),
-        ("User Acquisition", 40, 44),
-        ("Retention & Revenue", 50, 53),
-        ("Daily Operations", 60, 62),
-        ("Research / Special Ops", 63, 72),
-        ("Governance & Compliance", 73, 79),
-        ("QA & Testing", 80, 89),
-        ("Browser Agents", 90, 93),
-        ("Crawler Agents", 94, 97),
-        ("Visual Agents", 98, 101),
-        ("Security Force", 102, 107),
-        ("RAG Knowledge", 108, 113),
-        ("HRM Workforce", 114, 119),
+        ("Commander", 0, 0, "operational"),
+        ("Core Engineers", 1, 8, "operational"),
+        ("Vendor Acquisition", 10, 31, "operational"),
+        ("User Acquisition", 40, 44, "operational"),
+        ("Retention & Revenue", 50, 53, "operational"),
+        ("Daily Operations", 60, 62, "operational"),
+        ("Research / Special Ops", 63, 72, "operational"),
+        ("Governance & Compliance", 73, 79, "operational"),
+        ("QA & Testing", 80, 89, "operational"),
+        ("Browser Agents (Hands/Arms)", 90, 93, "operational"),
+        ("Crawler Agents (Legs)", 94, 97, "operational"),
+        ("Visual Agents (Eyes)", 98, 101, "operational"),
+        ("Security Force", 102, 107, "operational"),
+        ("RAG Knowledge", 108, 113, "operational"),
+        ("HRM Workforce (Control)", 114, 119, "control_council"),
+        ("Special Governance (Supreme)", 120, 129, "special_governance"),
     ]
-    for cat, start, end in categories:
+    for cat, start, end, tier in categories:
         agents.append(
             {
                 "category": cat,
                 "range": f"{start:03d}-{end:03d}",
                 "count": end - start + 1,
+                "tier": tier,
                 "status": "standby",
                 "active": 0,
             }
         )
     return {
-        "total_agents": 120,
+        "agent_count_model": {
+            "operational": 114,
+            "control_council": 6,
+            "special_governance": 10,
+            "total": 130,
+        },
+        "total_agents": 130,
         "active": 0,
-        "standby": 120,
+        "standby": 130,
         "categories": agents,
         "timestamp": datetime.utcnow().isoformat(),
     }
@@ -541,35 +549,41 @@ async def operations_errors(
 # ---------------------------------------------------------------------------
 @router.get("/agents/fleet")
 async def agent_fleet(caller_email: str = Query(ADMIN_EMAIL)):
+    """Fleet overview — 114 operational + 6 control + 10 special = 130 total"""
     _check_admin(caller_email)
     groups = [
-        {"name": "QA Agents", "count": 10, "status": "standby", "active": 0},
-        {"name": "Vendor Scout Agents", "count": 22, "status": "standby", "active": 0},
-        {"name": "Marketplace Agents", "count": 5, "status": "standby", "active": 0},
-        {"name": "Product/UX Agents", "count": 8, "status": "standby", "active": 0},
-        {"name": "Compliance Agents", "count": 7, "status": "standby", "active": 0},
-        {"name": "Security Agents", "count": 6, "status": "standby", "active": 0},
-        {"name": "Billing Agents", "count": 4, "status": "standby", "active": 0},
-        {"name": "Runtime Agents", "count": 4, "status": "standby", "active": 0},
-        {"name": "Monitoring Agents", "count": 3, "status": "standby", "active": 0},
-        {"name": "Browser Agents", "count": 4, "status": "standby", "active": 0},
-        {"name": "Crawler Agents", "count": 4, "status": "standby", "active": 0},
-        {"name": "Visual Agents", "count": 4, "status": "standby", "active": 0},
-        {"name": "RAG Knowledge", "count": 6, "status": "standby", "active": 0},
-        {"name": "HRM Workforce", "count": 6, "status": "standby", "active": 0},
-        {"name": "Research / Special Ops", "count": 10, "status": "standby", "active": 0},
-        {"name": "Commander", "count": 1, "status": "standby", "active": 0},
-        {"name": "Core Engineers", "count": 8, "status": "standby", "active": 0},
-        {"name": "Retention & Revenue", "count": 4, "status": "standby", "active": 0},
-        {"name": "Daily Operations", "count": 3, "status": "standby", "active": 0},
-        {"name": "User Acquisition", "count": 5, "status": "standby", "active": 0},
+        {"name": "Commander", "range": "000", "count": 1, "tier": "operational"},
+        {"name": "Core Engineers", "range": "001-008", "count": 8, "tier": "operational"},
+        {"name": "Vendor Acquisition", "range": "010-031", "count": 22, "tier": "operational"},
+        {"name": "User Acquisition", "range": "040-044", "count": 5, "tier": "operational"},
+        {"name": "Retention & Revenue", "range": "050-053", "count": 4, "tier": "operational"},
+        {"name": "Daily Operations", "range": "060-062", "count": 3, "tier": "operational"},
+        {"name": "Research / Special Ops", "range": "063-072", "count": 10, "tier": "operational"},
+        {"name": "Governance & Compliance", "range": "073-079", "count": 7, "tier": "operational"},
+        {"name": "QA & Testing", "range": "080-089", "count": 10, "tier": "operational"},
+        {"name": "Browser Agents (Hands/Arms)", "range": "090-093", "count": 4, "tier": "operational"},
+        {"name": "Crawler Agents (Legs)", "range": "094-097", "count": 4, "tier": "operational"},
+        {"name": "Visual Agents (Eyes)", "range": "098-101", "count": 4, "tier": "operational"},
+        {"name": "Security Force", "range": "102-107", "count": 6, "tier": "operational"},
+        {"name": "RAG Knowledge", "range": "108-113", "count": 6, "tier": "operational"},
+        {"name": "HRM Workforce (Control)", "range": "114-119", "count": 6, "tier": "control_council"},
+        {"name": "Special Governance (Supreme)", "range": "120-129", "count": 10, "tier": "special_governance"},
     ]
-    total = sum(g["count"] for g in groups)
+    for g in groups:
+        g["status"] = "standby"
+        g["active"] = 0
     return {
-        "total_agents": total,
+        "agent_count_model": {
+            "operational": 114,
+            "control_council": 6,
+            "special_governance": 10,
+            "total": 130,
+        },
+        "total_agents": 130,
         "active": 0,
-        "standby": total,
+        "standby": 130,
         "groups": groups,
+        "note": "Use /api/v1/agents/fleet for live DB-backed fleet data",
         "timestamp": datetime.utcnow().isoformat(),
     }
 
@@ -579,17 +593,35 @@ async def agent_fleet(caller_email: str = Query(ADMIN_EMAIL)):
 # ---------------------------------------------------------------------------
 @router.get("/governance/compliance")
 async def governance_compliance(caller_email: str = Query(ADMIN_EMAIL)):
+    """Compliance posture with honest evidence states — no fake claims."""
     _check_admin(caller_email)
     return {
         "policies": [
-            {"name": "Data Encryption at Rest", "status": "enforced"},
-            {"name": "JWT Token Rotation", "status": "enforced"},
-            {"name": "MFA Requirement", "status": "enabled"},
-            {"name": "Audit Logging", "status": "active"},
-            {"name": "RBAC Enforcement", "status": "active"},
-            {"name": "Rate Limiting", "status": "active"},
+            {"name": "Data Encryption at Rest", "evidence": "configured", "detail": "SQLAlchemy engine uses encrypted connection string"},
+            {"name": "JWT Token Rotation", "evidence": "configured", "detail": "JWT signing configured in settings; auto-rotation not yet wired"},
+            {"name": "MFA Requirement", "evidence": "not_wired", "detail": "MFA is not implemented yet — planned for auth hardening phase"},
+            {"name": "Audit Logging", "evidence": "verified", "detail": "AuditLog model + /audit-log endpoint active; AgentRun + EvidenceArtifact capture proof"},
+            {"name": "RBAC Enforcement", "evidence": "configured", "detail": "Admin check via caller_email; full RBAC with roles/permissions planned"},
+            {"name": "Rate Limiting", "evidence": "configured", "detail": "Middleware configured; per-route enforcement pending verification"},
+            {"name": "Freeze Intel Governance", "evidence": "verified", "detail": "Persistent freeze state blocks mutations; requires CONFIRM UNFREEZE"},
+            {"name": "Agent Guardrails", "evidence": "verified", "detail": "43 rules across 5 categories; penalty system with 5 severity levels"},
+            {"name": "Decision Frames", "evidence": "verified", "detail": "SHA-256 sealed audit records with proofHash and replayStatus"},
+            {"name": "Evidence Artifacts", "evidence": "verified", "detail": "Immutable records with content_hash (SHA-256) and storage_path"},
+            {"name": "Agent Run History", "evidence": "verified", "detail": "AgentRun model captures cost, tool_calls, errors, blocked_mutations, audit_hash"},
+            {"name": "Council Voting", "evidence": "verified", "detail": "Weighted voting with approve/reject/abstain; tally endpoint available"},
         ],
-        "overall": "compliant",
+        "evidence_states": {
+            "verified": "Evidence exists and is wired to live backend",
+            "configured": "Setting exists but full enforcement/verification pending",
+            "not_wired": "Feature planned but not yet connected to live backend",
+            "missing": "No evidence or implementation exists",
+        },
+        "agent_count_model": {
+            "operational": 114,
+            "control_council": 6,
+            "special_governance": 10,
+            "total": 130,
+        },
         "timestamp": datetime.utcnow().isoformat(),
     }
 

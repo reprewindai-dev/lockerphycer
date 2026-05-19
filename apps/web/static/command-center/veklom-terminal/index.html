@@ -12,8 +12,15 @@
     <script>
     // ─── BACKEND WEBSOCKET HANDSHAKE ──────────────────────────────
     (function connectBackend() {
-      var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      var wsUrl = proto + '//' + location.host + '/ws/terminal?terminal=veklom&caller_email=reprewindai%40gmail.com';
+      // Support configurable backend URL for split deploy (Vercel frontend + Hetzner backend)
+      var wsBase = window.__VEKLOM_WS_BASE__ || '';
+      var wsUrl;
+      if (wsBase) {
+        wsUrl = wsBase + '/ws/terminal?terminal=veklom';
+      } else {
+        var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        wsUrl = proto + '//' + location.host + '/ws/terminal?terminal=veklom';
+      }
       var ws = null;
       var reconnectDelay = 1000;
 

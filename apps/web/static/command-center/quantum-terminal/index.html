@@ -1331,8 +1331,15 @@ document.getElementById('req-modal').addEventListener('click', e => {
 
 // ─── BACKEND WEBSOCKET HANDSHAKE ──────────────────────────────
 (function connectBackend() {
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = proto + '//' + location.host + '/ws/terminal?terminal=quantum&caller_email=reprewindai%40gmail.com';
+  // Support configurable backend URL for split deploy (Vercel frontend + Hetzner backend)
+  const wsBase = window.__VEKLOM_WS_BASE__ || '';
+  let wsUrl;
+  if (wsBase) {
+    wsUrl = wsBase + '/ws/terminal?terminal=quantum';
+  } else {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    wsUrl = proto + '//' + location.host + '/ws/terminal?terminal=quantum';
+  }
   let ws = null;
   let reconnectDelay = 1000;
 
