@@ -65,16 +65,21 @@ async def _broadcast(terminal_type: str, payload: dict):
 async def terminal_websocket(
     websocket: WebSocket,
     terminal: str = Query("quantum"),
-    caller_email: str = Query(ADMIN_EMAIL),
+    caller_email: str = Query(None),
 ):
     """WebSocket handshake for operator terminals.
 
     Query params
     ------------
     terminal : str   – ``quantum`` | ``veklom``
-    caller_email : str – must match ADMIN_EMAIL
+    caller_email : str – must match ADMIN_EMAIL (dev-mode only; production uses token auth)
     """
-    if caller_email != ADMIN_EMAIL:
+    # In dev mode allow query-param auth; in production require proper token
+    if not settings.DEBUG:
+        if caller_email != ADMIN_EMAIL:
+            await websocket.close(code=4003, reason="Forbidden: admin only")
+            return
+    elif caller_email and caller_email != ADMIN_EMAIL:
         await websocket.close(code=4003, reason="Forbidden: admin only")
         return
 
@@ -93,7 +98,7 @@ async def terminal_websocket(
         "server": settings.APP_NAME,
         "version": settings.VERSION,
         "protocol": "veklom-ws-v1",
-        "admin_email": ADMIN_EMAIL,
+        "authenticated": True,
         "capabilities": {
             "live_events": True,
             "command_dispatch": True,

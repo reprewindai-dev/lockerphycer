@@ -88,9 +88,22 @@ try:
 except ImportError:
     pass
 
+_cors_origins = (
+    ["*"]
+    if settings.DEBUG
+    else [
+        settings.FRONTEND_URL,
+        "https://lockersphere.com",
+        "https://app.lockersphere.com",
+        "https://command.lockersphere.com",
+        "https://veklom.com",
+        "https://app.veklom.com",
+    ]
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

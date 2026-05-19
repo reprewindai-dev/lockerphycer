@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config.settings import settings
 from core.database.database import get_db
+from core.security.auth import require_admin
 from db.models import (
     AgentDefinition,
     AgentRun,
@@ -43,9 +44,6 @@ logger = logging.getLogger(__name__)
 ADMIN_EMAIL = settings.ADMIN_EMAIL
 
 
-def _check_admin(caller_email: str):
-    if caller_email != ADMIN_EMAIL:
-        raise HTTPException(status_code=403, detail="Agents: admin only")
 
 
 # ---------------------------------------------------------------------------
@@ -60,11 +58,10 @@ async def list_agents(
     committee: Optional[str] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(200, ge=1, le=500),
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """List all agent definitions with optional filters."""
-    _check_admin(caller_email)
     q = select(AgentDefinition).order_by(AgentDefinition.agent_number)
     if group:
         q = q.where(AgentDefinition.group == group)
@@ -101,11 +98,10 @@ async def list_agents(
 @router.get("/registry/{agent_number}")
 async def get_agent(
     agent_number: int,
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Get a single agent definition by number."""
-    _check_admin(caller_email)
     result = await db.execute(
         select(AgentDefinition).where(
             AgentDefinition.agent_number == agent_number
@@ -140,11 +136,10 @@ async def get_agent(
 @router.get("/registry/{agent_number}/mission")
 async def get_agent_mission(
     agent_number: int,
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Get just the mission text for an agent."""
-    _check_admin(caller_email)
     result = await db.execute(
         select(AgentDefinition).where(
             AgentDefinition.agent_number == agent_number
@@ -164,11 +159,10 @@ async def get_agent_mission(
 async def update_agent_status(
     agent_number: int,
     new_status: str = Query(...),
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Update an agent's operational status."""
-    _check_admin(caller_email)
     valid = {"active", "standby", "frozen", "decommissioned", "penalty"}
     if new_status not in valid:
         raise HTTPException(status_code=400, detail=f"Invalid status: {new_status}")
@@ -192,11 +186,10 @@ async def update_agent_status(
 
 @router.get("/fleet")
 async def agent_fleet(
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Fleet overview — agents by group with counts and status."""
-    _check_admin(caller_email)
     result = await db.execute(
         select(
             AgentDefinition.group,
@@ -232,11 +225,10 @@ async def agent_fleet(
 
 @router.get("/fleet/capabilities")
 async def fleet_capabilities(
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """List all unique capabilities across the fleet."""
-    _check_admin(caller_email)
     result = await db.execute(
         select(AgentDefinition.capabilities).where(
             AgentDefinition.capabilities.isnot(None)
@@ -251,11 +243,10 @@ async def fleet_capabilities(
 
 @router.get("/fleet/committees")
 async def fleet_committees(
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Agent counts by committee."""
-    _check_admin(caller_email)
     result = await db.execute(
         select(AgentDefinition.committee, func.count().label("cnt"))
         .group_by(AgentDefinition.committee)
@@ -279,11 +270,10 @@ async def list_runs(
     hours: int = Query(24, ge=1, le=720),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """List agent runs with filters."""
-    _check_admin(caller_email)
     since = datetime.utcnow() - timedelta(hours=hours)
     q = select(AgentRun).where(AgentRun.started_at >= since).order_by(AgentRun.started_at.desc())
     if agent_number is not None:
@@ -325,11 +315,10 @@ async def list_runs(
 async def create_run(
     agent_number: int = Query(...),
     task: str = Query(...),
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Start a new agent run."""
-    _check_admin(caller_email)
     agent_result = await db.execute(
         select(AgentDefinition).where(
             AgentDefinition.agent_number == agent_number
@@ -358,11 +347,10 @@ async def complete_run(
     status: str = Query("completed"),
     cost_cents: int = Query(0),
     tokens_used: int = Query(0),
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Complete an agent run with results."""
-    _check_admin(caller_email)
     result = await db.execute(select(AgentRun).where(AgentRun.id == run_id))
     run = result.scalars().first()
     if not run:
@@ -387,11 +375,10 @@ async def complete_run(
 @router.get("/runs/stats")
 async def run_stats(
     hours: int = Query(24, ge=1, le=720),
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Aggregated run statistics."""
-    _check_admin(caller_email)
     since = datetime.utcnow() - timedelta(hours=hours)
     total = (
         await db.execute(
@@ -442,11 +429,10 @@ async def list_decision_frames(
     risk_tier: Optional[str] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """List decision frames."""
-    _check_admin(caller_email)
     q = select(DecisionFrame).order_by(DecisionFrame.created_at.desc())
     if risk_tier:
         q = q.where(DecisionFrame.risk_tier == risk_tier)
@@ -477,11 +463,10 @@ async def create_decision_frame(
     objective: str = Query(...),
     risk_tier: str = Query("low"),
     cost_estimate_cents: int = Query(0),
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new decision frame."""
-    _check_admin(caller_email)
     agent_result = await db.execute(
         select(AgentDefinition).where(
             AgentDefinition.agent_number == agent_number
@@ -527,11 +512,10 @@ async def list_signals(
     hours: int = Query(24, ge=1, le=720),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """List agent signals."""
-    _check_admin(caller_email)
     since = datetime.utcnow() - timedelta(hours=hours)
     q = select(AgentSignal).where(AgentSignal.created_at >= since).order_by(AgentSignal.created_at.desc())
     if signal_type:
@@ -568,11 +552,10 @@ async def create_signal(
     summary: str = Query(...),
     severity: str = Query("info"),
     score: float = Query(0.0),
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Record a new agent signal."""
-    _check_admin(caller_email)
     agent_result = await db.execute(
         select(AgentDefinition).where(
             AgentDefinition.agent_number == agent_number
@@ -606,11 +589,10 @@ async def list_violations(
     resolved: Optional[bool] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """List guardrail violations."""
-    _check_admin(caller_email)
     q = select(AgentViolation).order_by(AgentViolation.created_at.desc())
     if resolved is not None:
         q = q.where(AgentViolation.resolved == resolved)
@@ -645,11 +627,10 @@ async def record_violation(
     description: str = Query(...),
     penalty_applied: Optional[str] = None,
     penalty_points: int = Query(0),
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Record a guardrail violation."""
-    _check_admin(caller_email)
     agent_result = await db.execute(
         select(AgentDefinition).where(
             AgentDefinition.agent_number == agent_number
@@ -676,11 +657,10 @@ async def record_violation(
 @router.patch("/violations/{violation_id}/resolve")
 async def resolve_violation(
     violation_id: str,
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Mark a violation as resolved."""
-    _check_admin(caller_email)
     result = await db.execute(
         select(AgentViolation).where(AgentViolation.id == violation_id)
     )
@@ -702,11 +682,10 @@ async def list_rewards(
     agent_number: Optional[int] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """List agent rewards/incentives."""
-    _check_admin(caller_email)
     q = select(AgentReward).order_by(AgentReward.created_at.desc())
     result = await db.execute(q.offset(skip).limit(limit))
     rewards = result.scalars().all()
@@ -734,11 +713,10 @@ async def grant_reward(
     reward_type: str = Query(...),
     description: str = Query(...),
     points: int = Query(0),
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Grant a reward to an agent."""
-    _check_admin(caller_email)
     agent_result = await db.execute(
         select(AgentDefinition).where(
             AgentDefinition.agent_number == agent_number
@@ -769,11 +747,10 @@ async def list_council_votes(
     proposal_id: Optional[str] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """List sovereign council votes."""
-    _check_admin(caller_email)
     q = select(AgentCouncilVote).order_by(AgentCouncilVote.created_at.desc())
     if proposal_id:
         q = q.where(AgentCouncilVote.proposal_id == proposal_id)
@@ -804,11 +781,10 @@ async def cast_vote(
     proposal_summary: str = Query(...),
     vote: str = Query(...),
     reasoning: Optional[str] = None,
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Cast a council vote."""
-    _check_admin(caller_email)
     agent_result = await db.execute(
         select(AgentDefinition).where(
             AgentDefinition.agent_number == agent_number
@@ -834,11 +810,10 @@ async def cast_vote(
 @router.get("/council/tally/{proposal_id}")
 async def tally_votes(
     proposal_id: str,
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Tally votes for a proposal (weighted)."""
-    _check_admin(caller_email)
     result = await db.execute(
         select(AgentCouncilVote).where(
             AgentCouncilVote.proposal_id == proposal_id
@@ -869,11 +844,10 @@ async def tally_votes(
 @router.get("/freeze-reports")
 async def list_freeze_reports(
     status: Optional[str] = None,
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """List FREEZE_INTEL reports."""
-    _check_admin(caller_email)
     q = select(IntelFreezeReport).order_by(IntelFreezeReport.frozen_at.desc())
     if status:
         q = q.where(IntelFreezeReport.status == status)
@@ -909,11 +883,10 @@ async def list_evidence(
     artifact_type: Optional[str] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """List evidence artifacts."""
-    _check_admin(caller_email)
     q = select(EvidenceArtifact).order_by(EvidenceArtifact.created_at.desc())
     if artifact_type:
         q = q.where(EvidenceArtifact.artifact_type == artifact_type)
@@ -942,11 +915,10 @@ async def create_evidence(
     title: str = Query(...),
     content: str = Query(...),
     agent_number: Optional[int] = None,
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Create an evidence artifact with SHA-256 hash."""
-    _check_admin(caller_email)
     content_hash = hashlib.sha256(content.encode()).hexdigest()
     agent_id = None
     if agent_number is not None:
@@ -978,11 +950,10 @@ async def create_evidence(
 @router.get("/monthly-report")
 async def monthly_proof_report(
     days: int = Query(30, ge=1, le=90),
-    caller_email: str = Query(ADMIN_EMAIL),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Generate monthly agent proof report."""
-    _check_admin(caller_email)
     since = datetime.utcnow() - timedelta(days=days)
 
     total_runs = (
@@ -1092,9 +1063,8 @@ async def monthly_proof_report(
 
 
 @router.get("/guardrails")
-async def list_guardrails(caller_email: str = Query(ADMIN_EMAIL)):
+async def list_guardrails(admin_email: str = Depends(require_admin)):
     """Return the full guardrail ruleset."""
-    _check_admin(caller_email)
     return {
         "categories": [
             {
@@ -1179,5 +1149,164 @@ async def list_guardrails(caller_email: str = Query(ADMIN_EMAIL)):
             {"level": 5, "name": "Retirement", "action": "Agent permanently decommissioned"},
         ],
         "agent_ranks": ["Recruit", "Operative", "Specialist", "Elite", "Commander"],
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Seed — populate agent definitions from /agents/ mission files
+# ---------------------------------------------------------------------------
+
+_DIR_TO_GROUP = {
+    "phase0-scaffolding": "Scaffolding",
+    "phase1-engineering": "Core Engineers",
+    "phase2-vendor-acquisition": "Vendor Acquisition",
+    "phase3-user-acquisition": "User Acquisition",
+    "phase4-retention-revenue": "Retention & Revenue",
+    "phase5-daily-operations": "Daily Operations",
+    "rag-knowledge": "RAG Knowledge",
+    "security-force": "Security Force",
+    "eyes-visual": "Visual Agents",
+    "hrm-workforce": "HRM Workforce",
+    "special-governance": "Research / Special Ops",
+}
+
+_CONTROL_AGENTS = {0, 108, 109, 110, 111, 112, 113}
+_SPECIAL_GOV_RANGE = range(120, 130)
+
+import re as _re
+from pathlib import Path as _Path
+
+
+def _parse_agent_files() -> list[dict]:
+    agents_dir = _Path(__file__).resolve().parents[3] / "agents"
+    if not agents_dir.exists():
+        return []
+    results: list[dict] = []
+    for dirn in sorted(agents_dir.iterdir()):
+        if not dirn.is_dir():
+            continue
+        group = _DIR_TO_GROUP.get(dirn.name, "General")
+        for fpath in sorted(dirn.glob("agent-*.md")):
+            m = _re.match(r"agent-(\d+)-(.+)\.md", fpath.name)
+            if not m:
+                continue
+            num = int(m.group(1))
+            codename_slug = m.group(2)
+            lines = fpath.read_text(errors="replace").splitlines()
+            title = codename_slug.replace("-", " ").title()
+            mission = "Operational agent"
+            phase = dirn.name
+            committee = group
+            priority = "MEDIUM"
+            capabilities: list[str] = []
+
+            for line in lines:
+                if line.startswith("# Agent-") and " — " in line:
+                    title = line.split(" — ", 1)[1].strip()
+                if line.startswith("**Committee:**"):
+                    committee = line.split(":**", 1)[1].strip()
+                if line.startswith("**Phase:**"):
+                    phase = line.split(":**", 1)[1].strip().split(" — ")[0].strip()
+                if line.startswith("**Priority:**"):
+                    priority = line.split(":**", 1)[1].strip().split(" — ")[0].strip()
+
+            in_mission = False
+            for line in lines:
+                if line.strip().startswith("## Mission"):
+                    in_mission = True
+                    continue
+                if in_mission:
+                    if line.strip().startswith("##"):
+                        break
+                    if line.strip():
+                        mission = line.strip()[:500]
+                        break
+
+            if "eyes" in codename_slug or "visual" in codename_slug:
+                capabilities.append("eyes")
+            if "hrm" in codename_slug:
+                capabilities.append("hrm")
+            if "rag" in codename_slug:
+                capabilities.append("rag")
+            if "security" in codename_slug or "sentinel" in codename_slug:
+                capabilities.append("sentinel")
+            if "zeno" in codename_slug:
+                capabilities.append("zeno")
+            if "gladiator" in codename_slug:
+                capabilities.append("gladiator")
+            if "listener" in codename_slug:
+                capabilities.append("listener")
+            if "scientist" in codename_slug or "ssrn" in codename_slug or "arxiv" in codename_slug:
+                capabilities.append("scientist")
+
+            is_control = num in _CONTROL_AGENTS
+            is_special = num in _SPECIAL_GOV_RANGE
+
+            results.append({
+                "agent_number": num,
+                "name": title,
+                "codename": codename_slug,
+                "group": group,
+                "phase": phase,
+                "committee": committee,
+                "priority": priority,
+                "mission": mission,
+                "capabilities": capabilities,
+                "is_control_agent": is_control,
+                "rank_level": 90 if is_special else (80 if is_control else 50),
+                "voting_weight": 3.0 if is_special else (2.0 if is_control else 1.0),
+            })
+    return results
+
+
+@router.post("/seed")
+async def seed_agents(
+    admin_email: str = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Populate agent_definitions from /agents/ mission files.
+
+    Idempotent — skips agents whose agent_number already exists.
+    """
+    parsed = _parse_agent_files()
+    if not parsed:
+        raise HTTPException(status_code=404, detail="No agent mission files found in /agents/")
+
+    existing_q = await db.execute(select(AgentDefinition.agent_number))
+    existing_nums = {row[0] for row in existing_q.fetchall()}
+
+    created = 0
+    for a in parsed:
+        if a["agent_number"] in existing_nums:
+            continue
+        defn = AgentDefinition(
+            agent_number=a["agent_number"],
+            name=a["name"],
+            codename=a["codename"],
+            group=a["group"],
+            phase=a["phase"],
+            committee=a["committee"],
+            priority=a["priority"],
+            mission=a["mission"],
+            capabilities=a["capabilities"],
+            is_control_agent=a["is_control_agent"],
+            rank_level=a["rank_level"],
+            voting_weight=a["voting_weight"],
+        )
+        db.add(defn)
+        created += 1
+
+    await db.commit()
+    return {
+        "seeded": created,
+        "skipped": len(parsed) - created,
+        "total_parsed": len(parsed),
+        "agent_count_model": {
+            "operational": 114,
+            "control_council": 6,
+            "special_governance": 10,
+            "total": 130,
+        },
         "timestamp": datetime.utcnow().isoformat(),
     }

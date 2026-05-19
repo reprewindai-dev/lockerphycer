@@ -58,8 +58,9 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 async def get_db_status() -> dict:
     """Check database connection status"""
     try:
+        from sqlalchemy import text
         async with engine.begin() as conn:
-            await conn.execute("SELECT 1")
+            await conn.execute(text("SELECT 1"))
         return {
             "status": "healthy",
             "message": "Database connection successful"

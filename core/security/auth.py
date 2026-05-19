@@ -229,3 +229,52 @@ def is_safe_url(url: str) -> bool:
     dangerous_schemes = ["javascript:", "data:", "vbscript:", "file:"]
     lower = url.lower().strip()
     return not any(lower.startswith(s) for s in dangerous_schemes)
+
+
+# ---------------------------------------------------------------------------
+# Admin auth dependency — JWT-first, query-param fallback in dev mode only
+# ---------------------------------------------------------------------------
+from fastapi import Depends, HTTPException, Query
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from typing import Optional as _Opt
+
+_bearer_scheme = HTTPBearer(auto_error=False)
+
+
+async def require_admin(
+    credentials: _Opt[HTTPAuthorizationCredentials] = Depends(_bearer_scheme),
+    caller_email: _Opt[str] = Query(None),
+) -> str:
+    """Resolve admin identity.
+
+    Production path: Bearer JWT containing ``sub`` == ADMIN_EMAIL and
+    ``role`` == ``admin``.
+
+    Dev-mode fallback: ``?caller_email=<ADMIN_EMAIL>`` still accepted
+    when ``settings.DEBUG`` is True so local testing is not blocked.
+    """
+    admin = settings.ADMIN_EMAIL
+
+    # 1) Try Bearer token
+    if credentials and credentials.credentials:
+        try:
+            payload = verify_token(credentials.credentials)
+        except (ValueError, Exception):
+            raise HTTPException(status_code=401, detail="Invalid or expired token")
+        token_email = payload.get("sub", "")
+        token_role = payload.get("role", "")
+        if token_email != admin or token_role != "admin":
+            raise HTTPException(status_code=403, detail="Command Center: admin only")
+        return token_email
+
+    # 2) Dev-mode query-param fallback
+    if settings.DEBUG and caller_email:
+        if caller_email != admin:
+            raise HTTPException(status_code=403, detail="Command Center: admin only")
+        return caller_email
+
+    # 3) No auth provided
+    if settings.DEBUG:
+        return admin  # allow unauthenticated access in dev for convenience
+
+    raise HTTPException(status_code=401, detail="Authentication required")

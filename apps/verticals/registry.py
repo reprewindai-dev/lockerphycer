@@ -2,6 +2,9 @@
 Vertical Registry — loads and serves all LockerSphere vertical configurations.
 """
 
+from threading import Lock
+from typing import Callable
+
 from apps.verticals.base import VerticalConfig, VerticalType
 from apps.verticals.hospital import build_hospital_config
 from apps.verticals.bank import build_bank_config
