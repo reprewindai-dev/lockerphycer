@@ -18,6 +18,50 @@ from datetime import datetime
 from core.config.settings import settings
 from core.database.database import engine, Base
 
+# ─── Sentry — Error Tracking & Performance Monitoring ─────────────────────────
+# Must be initialised before any other imports that Sentry needs to instrument.
+# Set SENTRY_DSN in your environment / .env to activate.  When SENTRY_DSN is
+# absent the SDK is a silent no-op — nothing breaks in local dev.
+import sentry_sdk
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.starlette import StarletteIntegration
+from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+from sentry_sdk.integrations.logging import LoggingIntegration
+
+_sentry_dsn = os.environ.get("SENTRY_DSN") or getattr(settings, "SENTRY_DSN", None)
+_sentry_env = os.environ.get("SENTRY_ENVIRONMENT") or getattr(settings, "ENVIRONMENT", "production")
+
+sentry_sdk.init(
+    dsn=_sentry_dsn,
+    environment=_sentry_env,
+    release=getattr(settings, "VERSION", "0.1.0"),
+    # ── Performance ──────────────────────────────────────────────────────────
+    # traces_sample_rate=1.0 captures 100 % of transactions so performance
+    # data appears in Sentry immediately.  Lower this (e.g. 0.1) in high-
+    # traffic production once you have a baseline.
+    traces_sample_rate=1.0,
+    # profiles_sample_rate is relative to traces_sample_rate.
+    # 1.0 = profile every sampled transaction.
+    profiles_sample_rate=1.0,
+    # ── Integrations ─────────────────────────────────────────────────────────
+    integrations=[
+        StarletteIntegration(transaction_style="endpoint"),
+        FastApiIntegration(transaction_style="endpoint"),
+        SqlalchemyIntegration(),
+        LoggingIntegration(
+            level=logging.INFO,        # Capture INFO and above as breadcrumbs
+            event_level=logging.ERROR, # Send ERROR and above as Sentry events
+        ),
+    ],
+    # Send user IP & request body context with each event
+    send_default_pii=False,
+)
+
+if _sentry_dsn:
+    logging.info("Sentry initialised — env=%s traces_sample_rate=1.0", _sentry_env)
+else:
+    logging.info("Sentry DSN not set — running without error/performance tracking")
+
 # ─── OpenTelemetry / Grafana Cloud Instrumentation ────────────────────────────
 # When running with `opentelemetry-instrument uvicorn ...` auto-instrumentation
 # handles everything.  This block provides a programmatic fallback so the app

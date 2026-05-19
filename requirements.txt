@@ -26,6 +26,9 @@ redis>=5.0.0
 # Monitoring & Metrics
 prometheus-client>=0.19.0
 
+# Sentry — Error tracking & Performance monitoring
+sentry-sdk[fastapi]>=2.0.0
+
 # OpenTelemetry — Grafana Cloud Application Observability
 opentelemetry-distro>=0.48b0
 opentelemetry-exporter-otlp>=1.27.0
