@@ -1328,6 +1328,65 @@ document.getElementById('cmd-input').addEventListener('keydown', e => {
 document.getElementById('req-modal').addEventListener('click', e => {
   if (e.target === document.getElementById('req-modal')) closeModal();
 });
+
+// ─── BACKEND WEBSOCKET HANDSHAKE ──────────────────────────────
+(function connectBackend() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = proto + '//' + location.host + '/ws/terminal?terminal=quantum&caller_email=reprewindai%40gmail.com';
+  let ws = null;
+  let reconnectDelay = 1000;
+
+  function connect() {
+    ws = new WebSocket(wsUrl);
+
+    ws.onopen = function () {
+      reconnectDelay = 1000;
+      tLine('Backend WebSocket connected — handshake accepted', 'ok', '✓', 'p-ok');
+    };
+
+    ws.onmessage = function (evt) {
+      try {
+        const msg = JSON.parse(evt.data);
+        if (msg.type === 'handshake') {
+          tLine('Server: ' + msg.server + ' v' + msg.version + ' — protocol ' + msg.protocol, 'ok', '✓', 'p-ok');
+          tLine('Capabilities: live_events=' + msg.capabilities.live_events +
+                ' command_dispatch=' + msg.capabilities.command_dispatch +
+                ' telemetry_stream=' + msg.capabilities.telemetry_stream, 'sys', '◆', 'p-sys');
+        } else if (msg.type === 'command_result') {
+          tLine('← ' + msg.command + ' result received', 'ok', '✓', 'p-ok');
+          tJson(msg.result);
+        } else if (msg.type === 'heartbeat') {
+          // silent keepalive
+        } else if (msg.type === 'pong') {
+          // silent
+        }
+      } catch (_) { /* ignore non-JSON frames */ }
+    };
+
+    ws.onclose = function () {
+      setTimeout(function () {
+        reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+        connect();
+      }, reconnectDelay);
+    };
+
+    ws.onerror = function () { /* onclose will fire next */ };
+  }
+
+  connect();
+
+  // Expose send helper for terminal commands
+  window._veklomWs = {
+    send: function (payload) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(payload));
+      }
+    },
+    isConnected: function () {
+      return ws && ws.readyState === WebSocket.OPEN;
+    },
+  };
+})();
 </script>
 </body>
 </html>

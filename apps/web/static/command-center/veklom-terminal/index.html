@@ -9,6 +9,61 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+    // ─── BACKEND WEBSOCKET HANDSHAKE ──────────────────────────────
+    (function connectBackend() {
+      var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      var wsUrl = proto + '//' + location.host + '/ws/terminal?terminal=veklom&caller_email=reprewindai%40gmail.com';
+      var ws = null;
+      var reconnectDelay = 1000;
+
+      function connect() {
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = function () {
+          reconnectDelay = 1000;
+          console.log('[Veklom Terminal] Backend WebSocket connected — handshake accepted');
+        };
+
+        ws.onmessage = function (evt) {
+          try {
+            var msg = JSON.parse(evt.data);
+            if (msg.type === 'handshake') {
+              console.log('[Veklom Terminal] Server: ' + msg.server + ' v' + msg.version + ' — protocol ' + msg.protocol);
+              // Dispatch custom event so the React app can pick it up
+              window.dispatchEvent(new CustomEvent('veklom-ws-handshake', { detail: msg }));
+            } else if (msg.type === 'command_result') {
+              window.dispatchEvent(new CustomEvent('veklom-ws-message', { detail: msg }));
+            } else if (msg.type === 'route_info') {
+              window.dispatchEvent(new CustomEvent('veklom-ws-route', { detail: msg }));
+            }
+          } catch (_) { /* ignore non-JSON */ }
+        };
+
+        ws.onclose = function () {
+          setTimeout(function () {
+            reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+            connect();
+          }, reconnectDelay);
+        };
+
+        ws.onerror = function () { /* onclose fires next */ };
+      }
+
+      connect();
+
+      window._veklomWs = {
+        send: function (payload) {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify(payload));
+          }
+        },
+        isConnected: function () {
+          return ws && ws.readyState === WebSocket.OPEN;
+        },
+      };
+    })();
+    </script>
   </body>
 </html>
 
