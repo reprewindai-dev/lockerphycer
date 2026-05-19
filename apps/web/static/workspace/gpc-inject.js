@@ -82,38 +82,43 @@
       main.children[i].style.display = 'none';
     }
 
-    // Create GPC container
+    // Create GPC container — centered, full-width layout
     var gpc = document.createElement('div');
     gpc.id = 'gpc-page';
-    gpc.style.cssText = 'display:flex;flex:1;height:100%;min-height:0;background:#0a0a0a;';
+    gpc.style.cssText = 'display:flex;flex-direction:column;flex:1;height:100%;min-height:0;background:#0a0a0a;overflow-y:auto;';
 
     gpc.innerHTML =
-      '<div style="width:300px;min-width:300px;border-right:1px solid rgba(255,255,255,0.08);background:#0d0c0a;display:flex;flex-direction:column;padding:24px 20px;overflow-y:auto;">' +
-        '<div style="margin-bottom:32px;">' +
-          '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">' +
-            '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>' +
-            '<span style="font-size:16px;font-weight:700;letter-spacing:0.02em;color:#e0e0e0;">Governed Plan Compiler</span>' +
-          '</div>' +
-          '<p style="font-size:10px;text-transform:uppercase;letter-spacing:0.25em;color:rgba(255,255,255,0.3);font-weight:600;">Intent \u2192 Policy \u2192 Risk \u2192 Cost \u2192 Deploy</p>' +
+      // Header bar
+      '<div style="padding:28px 40px 0;max-width:1100px;width:100%;margin:0 auto;box-sizing:border-box;">' +
+        '<div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;">' +
+          '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>' +
+          '<span style="font-size:20px;font-weight:700;letter-spacing:0.02em;color:#e0e0e0;">Governed Plan Compiler</span>' +
         '</div>' +
-        '<div style="flex:1;">' +
-          '<div style="margin-bottom:24px;">' +
-            '<label style="font-size:10px;text-transform:uppercase;letter-spacing:0.2em;color:rgba(255,255,255,0.25);font-weight:700;display:block;margin-bottom:10px;">Compile Intent</label>' +
-            '<textarea id="gpc-intent" placeholder="Describe your AI workflow intent..." style="width:100%;height:100px;background:#050505;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:12px;color:#e0e0e0;font-size:13px;resize:none;outline:none;font-family:inherit;box-sizing:border-box;"></textarea>' +
-            '<button id="gpc-compile-btn" style="width:100%;margin-top:10px;padding:10px;background:#f97316;color:#000;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.3em;border:none;cursor:pointer;border-radius:6px;">Compile Plan</button>' +
+        '<p style="font-size:10px;text-transform:uppercase;letter-spacing:0.25em;color:rgba(255,255,255,0.3);font-weight:600;margin:0 0 24px 40px;">Intent \u2192 Policy \u2192 Risk \u2192 Cost \u2192 Deploy</p>' +
+      '</div>' +
+      // Two-column body
+      '<div style="display:flex;gap:28px;flex:1;min-height:0;padding:0 40px 32px;max-width:1100px;width:100%;margin:0 auto;box-sizing:border-box;">' +
+        // Left column — compile form + results
+        '<div style="flex:1;display:flex;flex-direction:column;gap:20px;min-width:0;">' +
+          '<div style="background:#0d0c0a;border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:24px;">' +
+            '<label style="font-size:10px;text-transform:uppercase;letter-spacing:0.2em;color:rgba(255,255,255,0.25);font-weight:700;display:block;margin-bottom:12px;">Compile Intent</label>' +
+            '<textarea id="gpc-intent" placeholder="Describe your AI workflow intent..." style="width:100%;height:120px;background:#050505;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:14px;color:#e0e0e0;font-size:14px;resize:none;outline:none;font-family:inherit;box-sizing:border-box;line-height:1.5;"></textarea>' +
+            '<button id="gpc-compile-btn" style="width:100%;margin-top:12px;padding:12px;background:#f97316;color:#000;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:0.3em;border:none;cursor:pointer;border-radius:8px;transition:opacity .15s;">Compile Plan</button>' +
           '</div>' +
-          '<div id="gpc-result" style="display:none;">' +
-            '<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.2em;color:rgba(255,255,255,0.25);font-weight:700;margin-bottom:10px;">Compiled Plan</div>' +
-            '<div id="gpc-result-content" style="font-size:12px;"></div>' +
+          '<div id="gpc-result" style="display:none;background:#0d0c0a;border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:24px;">' +
+            '<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.2em;color:rgba(255,255,255,0.25);font-weight:700;margin-bottom:12px;">Compiled Plan</div>' +
+            '<div id="gpc-result-content" style="font-size:13px;"></div>' +
           '</div>' +
-          '<div style="margin-top:24px;">' +
-            '<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.2em;color:rgba(255,255,255,0.25);font-weight:700;margin-bottom:10px;">Previous Plans</div>' +
+          '<div style="background:#0d0c0a;border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:24px;flex:1;min-height:120px;">' +
+            '<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.2em;color:rgba(255,255,255,0.25);font-weight:700;margin-bottom:12px;">Previous Plans</div>' +
             '<div id="gpc-plans-list" style="font-size:12px;color:rgba(255,255,255,0.4);"></div>' +
           '</div>' +
         '</div>' +
-      '</div>' +
-      '<div style="flex:1;position:relative;overflow:hidden;">' +
-        '<iframe id="gpc-engine-frame" src="' + UACPGEMINI_URL + '" style="width:300%;height:100%;border:none;background:#050505;position:absolute;left:-100%;" allow="clipboard-read;clipboard-write"></iframe>' +
+        // Right column — Deterministic Engine
+        '<div style="flex:1;min-width:0;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden;position:relative;min-height:400px;background:#050505;">' +
+          '<div style="position:absolute;top:12px;left:16px;z-index:2;font-size:9px;text-transform:uppercase;letter-spacing:0.2em;color:rgba(255,255,255,0.2);font-weight:700;pointer-events:none;">Deterministic Engine</div>' +
+          '<iframe id="gpc-engine-frame" src="' + UACPGEMINI_URL + '" style="width:300%;height:100%;border:none;background:#050505;position:absolute;left:-100%;top:0;" allow="clipboard-read;clipboard-write"></iframe>' +
+        '</div>' +
       '</div>';
 
     main.appendChild(gpc);
