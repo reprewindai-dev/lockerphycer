@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = Field(default=None, env="OPENAI_API_KEY")
     HUGGINGFACE_API_KEY: Optional[str] = Field(default=None, env="HUGGINGFACE_API_KEY")
     
+    # Email (Resend)
+    RESEND_API_KEY: Optional[str] = Field(default=None, env="RESEND_API_KEY")
+    EMAIL_FROM: str = Field(default="Veklom <noreply@veklom.com>", env="EMAIL_FROM")
+
     # Monitoring
     GRAFANA_PASSWORD: Optional[str] = Field(default=None, env="GRAFANA_PASSWORD")
     SENTRY_DSN: Optional[str] = Field(default=None, env="SENTRY_DSN")
