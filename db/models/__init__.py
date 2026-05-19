@@ -72,7 +72,7 @@ class User(Base):
     
     # Relationships
     sessions = relationship("UserSession", back_populates="user", cascade="all, delete-orphan")
-    security_events = relationship("SecurityEvent", back_populates="user")
+    security_events = relationship("SecurityEvent", back_populates="user", foreign_keys="[SecurityEvent.user_id]")
     ai_requests = relationship("AIRequest", back_populates="user")
 
 
@@ -219,7 +219,7 @@ class SystemMetrics(Base):
     
     # Additional metadata
     tags = Column(JSON)
-    metadata = Column(JSON)
+    extra_metadata = Column("metadata", JSON)
 
 
 class AuditLog(Base):
@@ -303,3 +303,118 @@ class Configuration(Base):
     
     # Relationships
     updater = relationship("User")
+
+
+# ---------------------------------------------------------------------------
+# Veklom Sovereign AI Hub models
+# ---------------------------------------------------------------------------
+
+class SubscriptionTier(PyEnum):
+    FREE = "free"
+    FOUNDING = "founding"
+    STANDARD = "standard"
+    REGULATED = "regulated"
+
+
+class Workspace(Base):
+    """Tenant workspace"""
+    __tablename__ = "workspaces"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_id = Column(String, ForeignKey("users.id"), nullable=False)
+    name = Column(String, nullable=False)
+    slug = Column(String, unique=True, index=True)
+    tier = Column(Enum(SubscriptionTier), default=SubscriptionTier.FREE)
+    is_active = Column(Boolean, default=True)
+    settings = Column(JSON, default=dict)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    owner = relationship("User")
+    listings = relationship("MarketplaceListing", back_populates="workspace")
+
+
+class MarketplaceListing(Base):
+    """Marketplace tool/model listing"""
+    __tablename__ = "marketplace_listings"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    workspace_id = Column(String, ForeignKey("workspaces.id"))
+    vendor_id = Column(String, ForeignKey("users.id"))
+    name = Column(String, nullable=False)
+    slug = Column(String, index=True)
+    description = Column(Text)
+    category = Column(String, index=True)
+    listing_type = Column(String, default="tool")
+    price_cents = Column(Integer, default=0)
+    is_published = Column(Boolean, default=False)
+    downloads = Column(Integer, default=0)
+    rating = Column(Float, default=0.0)
+    metadata_ = Column("metadata", JSON, default=dict)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    workspace = relationship("Workspace", back_populates="listings")
+    vendor = relationship("User")
+
+
+class WalletTransaction(Base):
+    """Operating reserve / wallet transaction"""
+    __tablename__ = "wallet_transactions"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
+    amount_cents = Column(Integer, nullable=False)
+    balance_after_cents = Column(Integer, nullable=False)
+    event_type = Column(String, nullable=False)
+    description = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class Feedback(Base):
+    """User feedback / bug reports / suggestions"""
+    __tablename__ = "feedback"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey("users.id"))
+    category = Column(String, nullable=False, default="general")
+    subject = Column(String, nullable=False)
+    body = Column(Text, nullable=False)
+    status = Column(String, default="open")
+    priority = Column(String, default="normal")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    resolved_at = Column(DateTime(timezone=True))
+
+    user = relationship("User")
+
+
+class UptimeCheck(Base):
+    """Uptime monitoring records"""
+    __tablename__ = "uptime_checks"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    service_name = Column(String, nullable=False, index=True)
+    status = Column(String, nullable=False, default="up")
+    response_time_ms = Column(Float)
+    status_code = Column(Integer)
+    details = Column(JSON)
+    checked_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class GPCPlan(Base):
+    """GPC — Governed Plan Compiler outputs"""
+    __tablename__ = "gpc_plans"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    workspace_id = Column(String, ForeignKey("workspaces.id"))
+    user_id = Column(String, ForeignKey("users.id"))
+    intent = Column(Text, nullable=False)
+    compiled_plan = Column(JSON)
+    risks = Column(JSON)
+    policy_requirements = Column(JSON)
+    cost_estimate = Column(JSON)
+    status = Column(String, default="draft")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    user = relationship("User")
