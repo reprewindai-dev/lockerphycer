@@ -90,13 +90,10 @@ def main() -> None:
         print(f"  UPLOADING  {tmpl['file']}  →  \"{tmpl['name']}\"")
 
         try:
-            # Resend Emails API — create a batch-send-ready template.
-            # The Resend Python SDK exposes resend.Emails for sending;
-            # for template management we use the lower-level HTTP client
-            # since the SDK may not expose the /emails/templates endpoint
-            # in every version.  We try the SDK method first, then fall
-            # back to a direct HTTP call.
-            _create_via_sdk(tmpl, html_content)
+            # Create template via direct HTTP POST to Resend API.
+            # The SDK doesn't expose template management endpoints,
+            # so we call the REST API directly with urllib.
+            _create_via_http(tmpl, html_content)
             print(f"  OK     {tmpl['name']}")
             created += 1
         except Exception as exc:
@@ -109,8 +106,8 @@ def main() -> None:
     print("-" * 60)
 
 
-def _create_via_sdk(tmpl: dict, html_content: str) -> None:
-    """Attempt to create the template via the Resend SDK or HTTP fallback."""
+def _create_via_http(tmpl: dict, html_content: str) -> None:
+    """Create the template via direct HTTP POST to Resend API."""
     import json
     from urllib.request import Request, urlopen
     from urllib.error import HTTPError

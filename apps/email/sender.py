@@ -8,6 +8,7 @@ Each function loads the matching HTML template from apps/email/templates/,
 substitutes {{VARIABLE}} placeholders, and sends via Resend.
 """
 
+import html as html_lib
 import logging
 import os
 from pathlib import Path
@@ -43,7 +44,7 @@ def _render(template_name: str, variables: dict) -> str:
     path = TEMPLATES_DIR / template_name
     html = path.read_text(encoding="utf-8")
     for key, value in variables.items():
-        html = html.replace("{{" + key + "}}", str(value))
+        html = html.replace("{{" + key + "}}", html_lib.escape(str(value), quote=True))
     return html
 
 
@@ -53,17 +54,17 @@ def _send(to: str, subject: str, html: str) -> Optional[str]:
         return None
     try:
         params = {
-            "from_": settings.EMAIL_FROM,
+            "from": settings.EMAIL_FROM,
             "to": [to],
             "subject": subject,
             "html": html,
         }
         resp = resend.Emails.send(params)
         msg_id = resp.get("id") if isinstance(resp, dict) else getattr(resp, "id", None)
-        logger.info("Email sent to %s — id=%s", to, msg_id)
+        logger.info("Email sent — id=%s", msg_id)
         return msg_id
     except Exception:
-        logger.exception("Failed to send email to %s", to)
+        logger.exception("Failed to send email")
         return None
 
 
