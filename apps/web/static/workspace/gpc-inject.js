@@ -82,14 +82,14 @@
       main.children[i].style.display = 'none';
     }
 
-    // Create GPC container — user's Deterministic Engine full-width
+    // Create GPC container — center black box only (left/right columns hidden)
     var gpc = document.createElement('div');
     gpc.id = 'gpc-page';
-    gpc.style.cssText = 'flex:1;height:100%;min-height:0;position:relative;background:#050505;';
+    gpc.style.cssText = 'flex:1;height:100%;min-height:0;position:relative;background:#050505;overflow:hidden;';
 
     gpc.innerHTML =
       '<iframe id="gpc-engine-frame" src="' + UACPGEMINI_URL + '" ' +
-        'style="width:100%;height:100%;border:none;background:#050505;" ' +
+        'style="width:300%;height:100%;border:none;background:#050505;position:absolute;left:-100%;top:0;" ' +
         'allow="clipboard-read;clipboard-write"></iframe>';
 
     main.appendChild(gpc);
