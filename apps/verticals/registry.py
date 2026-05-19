@@ -11,20 +11,31 @@ from apps.verticals.general import build_general_config
 
 
 _REGISTRY: dict[VerticalType, VerticalConfig] = {}
+_REGISTRY_LOCK = Lock()
+_LOADED = False
+
+_BUILDERS: dict[VerticalType, Callable[[], VerticalConfig]] = {
+    VerticalType.HOSPITAL: build_hospital_config,
+    VerticalType.BANK: build_bank_config,
+    VerticalType.INSURANCE: build_insurance_config,
+    VerticalType.CONTENT_CREATOR: build_content_creator_config,
+    VerticalType.GENERAL: build_general_config,
+}
 
 
 def _ensure_loaded():
-    if _REGISTRY:
+    global _LOADED
+    if _LOADED:
         return
-    for builder in (
-        build_hospital_config,
-        build_bank_config,
-        build_insurance_config,
-        build_content_creator_config,
-        build_general_config,
-    ):
-        cfg = builder()
-        _REGISTRY[cfg.vertical_type] = cfg
+    with _REGISTRY_LOCK:
+        if _LOADED:
+            return
+        new_registry: dict[VerticalType, VerticalConfig] = {}
+        for vertical_type, builder in _BUILDERS.items():
+            new_registry[vertical_type] = builder()
+        _REGISTRY.clear()
+        _REGISTRY.update(new_registry)
+        _LOADED = True
 
 
 def get_vertical(vertical_type: VerticalType) -> VerticalConfig:

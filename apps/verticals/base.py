@@ -103,6 +103,7 @@ class VerticalConfig:
             "icon": self.icon,
             "primary_color": self.primary_color,
             "accent_color": self.accent_color,
+            "logo_path": self.logo_path,
             "security": {
                 "mfa_required": self.security.mfa_required,
                 "min_password_length": self.security.min_password_length,
