@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<title>Team Invitation — Veklom</title>
+<!--[if mso]>
+<noscript>
+<xml>
+<o:OfficeDocumentSettings>
+<o:PixelsPerInch>96</o:PixelsPerInch>
+</o:OfficeDocumentSettings>
+</xml>
+</noscript>
+<![endif]-->
+<style>
+  body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+  table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+  img { -ms-interpolation-mode: bicubic; border: 0; height: auto; line-height: 100%; outline: none; text-decoration: none; }
+  body { margin: 0; padding: 0; width: 100% !important; height: 100% !important; background-color: #0A0A0A; }
+</style>
+</head>
+<body style="margin:0;padding:0;background-color:#0A0A0A;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#0A0A0A;">
+<tr><td align="center" style="padding:40px 20px;">
+
+<!-- Container -->
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background-color:#141414;border-radius:12px;overflow:hidden;">
+
+  <!-- Header -->
+  <tr>
+    <td style="background-color:#0A0A0A;padding:32px 40px;border-bottom:2px solid #FFB800;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+          <td>
+            <span style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:24px;font-weight:700;color:#FFB800;letter-spacing:2px;">VEKLOM</span>
+          </td>
+          <td align="right">
+            <span style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:12px;color:#A1A1A6;letter-spacing:1px;">TEAM INVITATION</span>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+
+  <!-- Body -->
+  <tr>
+    <td style="padding:48px 40px;">
+      <h1 style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:28px;font-weight:700;color:#FFFFFF;margin:0 0 8px;">You've been invited.</h1>
+      <p style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:16px;color:#A1A1A6;line-height:1.6;margin:0 0 32px;">
+        <strong style="color:#FFFFFF;">{{INVITER_NAME}}</strong> invited you to join their team on Veklom.
+      </p>
+
+      <!-- Team card -->
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:32px;background-color:#1A1A1A;border-radius:8px;overflow:hidden;">
+        <tr>
+          <td style="padding:24px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td width="56" valign="top">
+                  <!-- Team avatar -->
+                  <table role="presentation" cellpadding="0" cellspacing="0">
+                    <tr>
+                      <td style="width:48px;height:48px;background-color:#FFB800;border-radius:10px;text-align:center;vertical-align:middle;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:20px;font-weight:700;color:#0A0A0A;">
+                        {{TEAM_INITIAL}}
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+                <td style="padding-left:16px;" valign="top">
+                  <p style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:18px;font-weight:700;color:#FFFFFF;margin:0 0 4px;">{{TEAM_NAME}}</p>
+                  <p style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13px;color:#A1A1A6;margin:0;">{{TEAM_MEMBER_COUNT}} members &middot; {{TEAM_PLAN}} plan</p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+
+      <!-- CTA -->
+      <table role="presentation" cellpadding="0" cellspacing="0" style="margin-bottom:32px;">
+        <tr>
+          <td style="border-radius:8px;background-color:#FFB800;">
+            <a href="{{INVITE_URL}}" target="_blank" style="display:inline-block;padding:14px 32px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;font-weight:700;color:#0A0A0A;text-decoration:none;border-radius:8px;">Accept Invitation</a>
+          </td>
+        </tr>
+      </table>
+
+      <!-- Fallback link -->
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+          <td style="padding:16px 20px;background-color:#1A1A1A;border-radius:8px;">
+            <p style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:12px;color:#A1A1A6;margin:0 0 8px;">If the button doesn't work, copy and paste this URL into your browser:</p>
+            <p style="font-family:'Courier New',Courier,monospace;font-size:12px;color:#FFB800;margin:0;word-break:break-all;">{{INVITE_URL}}</p>
+          </td>
+        </tr>
+      </table>
+
+      <p style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13px;color:#A1A1A6;line-height:1.6;margin:24px 0 0;">
+        This invitation expires in 7 days. If you don't recognize {{INVITER_NAME}} or don't want to join, you can safely ignore this email.
+      </p>
+    </td>
+  </tr>
+
+  <!-- Footer -->
+  <tr>
+    <td style="padding:24px 40px;border-top:1px solid #1F1F1F;">
+      <p style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:12px;color:#A1A1A6;margin:0;line-height:1.6;">
+        Veklom — Sovereign AI Hub<br />
+        You received this because {{INVITER_NAME}} invited you to their team.<br />
+        <a href="https://app.veklom.com/settings/notifications" style="color:#FFB800;text-decoration:underline;">Manage email preferences</a>
+      </p>
+    </td>
+  </tr>
+
+</table>
+<!-- /Container -->
+
+</td></tr>
+</table>
+</body>
+</html>
