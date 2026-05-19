@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     # Monitoring
     GRAFANA_PASSWORD: Optional[str] = Field(default=None, env="GRAFANA_PASSWORD")
     SENTRY_DSN: Optional[str] = Field(default=None, env="SENTRY_DSN")
+
+    # OpenTelemetry / Grafana Cloud
+    OTEL_SERVICE_NAME: str = Field(default="veklom-sovereign-ai-hub", env="OTEL_SERVICE_NAME")
+    OTEL_EXPORTER_OTLP_ENDPOINT: Optional[str] = Field(default=None, env="OTEL_EXPORTER_OTLP_ENDPOINT")
+    OTEL_EXPORTER_OTLP_HEADERS: Optional[str] = Field(default=None, env="OTEL_EXPORTER_OTLP_HEADERS")
     
     # Security Settings
     ENABLE_MFA: bool = Field(default=True, env="ENABLE_MFA")

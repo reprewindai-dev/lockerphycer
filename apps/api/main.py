@@ -17,10 +17,43 @@ from datetime import datetime
 
 from core.config.settings import settings
 from core.database.database import engine, Base
+
+# ─── OpenTelemetry / Grafana Cloud Instrumentation ────────────────────────────
+# When running with `opentelemetry-instrument uvicorn ...` auto-instrumentation
+# handles everything.  This block provides a programmatic fallback so the app
+# can also boot normally and still push traces if the OTLP env vars are set.
+def _setup_otel():
+    try:
+        endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT") or getattr(settings, "OTEL_EXPORTER_OTLP_ENDPOINT", None)
+        if not endpoint:
+            return
+
+        from opentelemetry import trace
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+        resource = Resource.create({"service.name": os.environ.get("OTEL_SERVICE_NAME", settings.OTEL_SERVICE_NAME)})
+        provider = TracerProvider(resource=resource)
+        exporter = OTLPSpanExporter(endpoint=endpoint, insecure=endpoint.startswith("http://"))
+        provider.add_span_processor(BatchSpanProcessor(exporter))
+        trace.set_tracer_provider(provider)
+
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+        # Instrument will be called after `app` is created (see below)
+        logging.info("OpenTelemetry programmatic init — traces → %s", endpoint)
+    except ImportError:
+        logging.info("OpenTelemetry SDK not installed — skipping programmatic tracing")
+    except Exception as exc:
+        logging.warning("OpenTelemetry init failed: %s", exc)
+
+_setup_otel()
+
 from apps.api.routers import auth, users, security, monitoring, ai
 from apps.api.routers import workspace, marketplace, billing, gpc, gpc_proxy, platform_pulse, feedback, command_center
 from apps.api.routers.verticals import router as verticals_router
-from apps.api.routers import workspace, marketplace, billing, gpc, platform_pulse, feedback, command_center
+from apps.api.routers import terminal_ws
 from core.utils.logging import setup_logging
 
 
@@ -45,6 +78,13 @@ app = FastAPI(
 )
 
 setup_logging()
+
+# Instrument FastAPI with OpenTelemetry (if SDK is available)
+try:
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    FastAPIInstrumentor.instrument_app(app)
+except ImportError:
+    pass
 
 app.add_middleware(
     CORSMiddleware,
@@ -156,6 +196,7 @@ app.include_router(gpc_proxy.router, prefix="/gpc-engine", tags=["GPC Proxy"])
 app.include_router(platform_pulse.router, prefix="/api/v1/platform", tags=["Platform"])
 app.include_router(feedback.router, prefix="/api/v1/feedback", tags=["Feedback"])
 app.include_router(command_center.router, prefix="/api/v1/command-center", tags=["Command Center"])
+app.include_router(terminal_ws.router, tags=["Terminal WebSocket"])
 
 from apps.api.routers.marketplace_catalog import router as marketplace_catalog_router
 app.include_router(marketplace_catalog_router, prefix="/api/v1", tags=["Marketplace Catalog"])
