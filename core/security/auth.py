@@ -23,6 +23,9 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
+# Separator used when storing salted API key hashes: "<hex-salt>$<hex-hash>"
+_HASH_SEP = "$"
+
 
 def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
     """Create JWT access token"""
@@ -70,16 +73,47 @@ def generate_api_key() -> str:
 
 
 def hash_api_key(api_key: str) -> str:
-    """Hash API key for storage"""
-    return hashlib.sha256(api_key.encode()).hexdigest()
+    """Hash API key for storage using PBKDF2-HMAC-SHA256 with a random salt.
+
+    Returns a string of the form ``<hex-salt>$<hex-hash>`` so the salt is
+    stored alongside the derived key.  This replaces the previous bare
+    hashlib.sha256 call (CodeQL alerts #6 and #7 — weak/broken hashing on
+    sensitive data).
+    """
+    salt: bytes = secrets.token_bytes(32)
+    derived: bytes = hashlib.pbkdf2_hmac(
+        "sha256",
+        api_key.encode("utf-8"),
+        salt,
+        iterations=260_000,
+    )
+    return salt.hex() + _HASH_SEP + derived.hex()
 
 
 def verify_api_key(api_key: str, hashed_key: str) -> bool:
-    """Verify API key against hash"""
-    return hmac.compare_digest(
-        hashlib.sha256(api_key.encode()).hexdigest(),
-        hashed_key
+    """Verify API key against a salted PBKDF2 hash.
+
+    Supports both the legacy bare-sha256 format (64 hex chars, no separator)
+    and the new salted format so existing keys keep working until rotated.
+    """
+    if _HASH_SEP not in hashed_key:
+        # Legacy path: bare sha256 — compare and schedule re-hash on next write
+        candidate = hashlib.sha256(api_key.encode()).hexdigest()
+        return hmac.compare_digest(candidate, hashed_key)
+
+    try:
+        salt_hex, stored_hex = hashed_key.split(_HASH_SEP, 1)
+        salt = bytes.fromhex(salt_hex)
+    except ValueError:
+        return False
+
+    derived: bytes = hashlib.pbkdf2_hmac(
+        "sha256",
+        api_key.encode("utf-8"),
+        salt,
+        iterations=260_000,
     )
+    return hmac.compare_digest(derived.hex(), stored_hex)
 
 
 class EncryptionManager:

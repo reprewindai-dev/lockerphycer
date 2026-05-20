@@ -172,7 +172,11 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
-    logging.error(f"Unhandled exception: {exc}", exc_info=True)
+    # Log the full traceback internally via exc_info — do NOT interpolate
+    # str(exc) into the message to prevent raw exception details leaking
+    # into log-aggregation sinks (CodeQL alert #8: information exposure
+    # through an exception).
+    logging.error("Unhandled exception on %s", request.url.path, exc_info=True)
     return JSONResponse(
         status_code=500,
         content={
