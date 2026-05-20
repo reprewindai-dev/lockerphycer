@@ -1,0 +1,35 @@
+# Promtail — ships logs to Grafana Cloud Loki (Canada East)
+# Password = your Grafana.com API Token (set GRAFANA_API_TOKEN env var in Coolify)
+
+server:
+  http_listen_port: 0
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: https://1610559:${GRAFANA_API_TOKEN}@logs-prod-018.grafana.net/loki/api/v1/push
+
+scrape_configs:
+
+  # Application logs
+  - job_name: veklom-app
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: veklom-app
+          env: production
+          service: lockerphycer
+          __path__: /var/log/app/*.log
+
+  # System logs
+  - job_name: system
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: varlogs
+          env: production
+          __path__: /var/log/*.log
