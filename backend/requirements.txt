@@ -1,0 +1,61 @@
+# Core Framework
+fastapi>=0.104.1
+uvicorn[standard]>=0.24.0
+httpx>=0.25.0
+
+# Database & ORM
+sqlalchemy>=2.0.23
+alembic>=1.13.0
+psycopg2-binary>=2.9.9
+
+# Security & Authentication
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+python-multipart>=0.0.6
+cryptography>=46.0.5
+
+# Configuration & Environment
+python-dotenv>=1.0.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Background Processing
+celery[redis]>=5.3.0
+redis>=5.0.0
+
+# Monitoring & Metrics
+prometheus-client>=0.19.0
+
+# Sentry — Error tracking & Performance monitoring
+sentry-sdk[fastapi]>=2.0.0
+
+# OpenTelemetry — Grafana Cloud Application Observability
+opentelemetry-distro>=0.48b0
+opentelemetry-exporter-otlp>=1.27.0
+opentelemetry-instrumentation-fastapi>=0.48b0
+opentelemetry-instrumentation-sqlalchemy>=0.48b0
+opentelemetry-instrumentation-httpx>=0.48b0
+opentelemetry-instrumentation-redis>=0.48b0
+
+# AI & Machine Learning
+torch>=2.0.0
+transformers>=4.35.0
+accelerate>=0.24.0
+huggingface_hub>=0.19.0
+safetensors>=0.3.1
+
+# Email (Resend)
+resend>=2.0.0
+
+# Utilities
+python-dateutil>=2.8.2
+click>=8.1.0
+rich>=13.0.0
+
+# Development & Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.0.0
