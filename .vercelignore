@@ -1,0 +1,16 @@
+# Block Vercel from detecting this as a Python/FastAPI project
+requirements.txt
+Dockerfile
+docker-compose.yml
+core/
+db/
+agents/
+infra/
+scripts/
+apps/api/
+apps/verticals/
+apps/email/
+apps/__init__.py
+*.py
+**/__pycache__/
+**/*.pyc
