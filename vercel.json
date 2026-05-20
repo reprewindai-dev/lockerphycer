@@ -5,6 +5,22 @@
   "outputDirectory": "apps/web/landing",
   "rewrites": [
     {
+      "source": "/lockersphere",
+      "destination": "/static/lockersphere/index.html"
+    },
+    {
+      "source": "/lockersphere/(.*)",
+      "destination": "/static/lockersphere/index.html"
+    },
+    {
+      "source": "/workspace",
+      "destination": "/static/workspace/index.html"
+    },
+    {
+      "source": "/workspace/(.*)",
+      "destination": "/static/workspace/index.html"
+    },
+    {
       "source": "/command-center/(.*)",
       "destination": "/command-center/index.html"
     },
