@@ -1,6 +1,6 @@
 """Workspace management routes"""
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import Optional
@@ -104,3 +104,41 @@ async def deactivate_workspace(workspace_id: str, db: AsyncSession = Depends(get
     ws.is_active = False
     await db.commit()
     return {"message": "Workspace deactivated"}
+
+
+@router.post("/members/invite")
+async def invite_member(
+    body: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(lambda: None),
+):
+    """Invite a new member to the workspace by email.
+
+    Note: `email` is the unique identifier on the User model; there is no
+    `username` column, so we must NOT pass a `username=` kwarg to User(...).
+    """
+    email = body.get("email")
+    role = body.get("role", "developer")
+    if not email:
+        raise HTTPException(status_code=400, detail="email is required")
+
+    workspace_id = getattr(user, "workspace_id", None) if user else body.get("workspace_id")
+    if not workspace_id:
+        raise HTTPException(status_code=400, detail="workspace_id is required")
+
+    # Reject duplicate invites for an existing user.
+    existing = await db.execute(select(User).where(User.email == email))
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(status_code=409, detail="User already exists")
+
+    new_user = User(
+        email=email,
+        full_name="Invited User",
+        hashed_password="",  # set on invite acceptance
+        workspace_id=workspace_id,
+        role=role,
+    )
+    db.add(new_user)
+    await db.commit()
+    await db.refresh(new_user)
+    return {"id": new_user.id, "email": new_user.email, "role": role}
