@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 from core.config.settings import settings
 from core.database.database import engine, Base
