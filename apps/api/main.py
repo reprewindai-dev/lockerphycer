@@ -5,7 +5,7 @@ Backend source of truth: lockerphycer
 
 from pathlib import Path
 
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -95,6 +95,11 @@ def _setup_otel():
 _setup_otel()
 
 from apps.api.routers import auth, users, security, monitoring, ai
+from apps.api.routers.auth import resolve_current_user
+
+# Alias used by routes that accept either a JWT user or an API key.
+# Provides a single dependency name for future extension to API-key auth.
+get_current_user_or_api_key = resolve_current_user
 from apps.api.routers import workspace, marketplace, billing, gpc, gpc_proxy, platform_pulse, feedback, command_center
 from apps.api.routers.verticals import router as verticals_router
 from apps.api.routers import terminal_ws
