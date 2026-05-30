@@ -1,0 +1,15 @@
+# Veklom
+
+> Veklom Sovereign AI Hub turns AI experiments into governed private workflows.
+> Self-hosted, sovereign execution: no model weights, prompt data, execution logs,
+> or API keys ever leave the customer environment.
+
+## Legal
+
+- [Software License Agreement](https://veklom.com/legal/license): End-User License Agreement (EULA) for the Veklom platform — self-hosted architecture, sovereign execution guarantee, data sovereignty, HIPAA/BAA handling, plan tiers (Sovereign Trial, Team, Business, Enterprise), and Ontario governing law.
+- [Vendor Services Agreement](https://veklom.com/legal/vendor-agreement): Agreement for Veklom suppliers, contractors, and service providers — confidentiality, data protection, HIPAA/BAA, security requirements, IP assignment, and Ontario governing law.
+
+## Contact
+
+- Legal: legal@veklom.com
+- Security: security@veklom.com

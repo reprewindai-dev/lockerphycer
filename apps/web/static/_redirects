@@ -1,0 +1,11 @@
+# Cloudflare Pages redirects for the Veklom marketing site (apps/web/static).
+#
+# Cloudflare Pages automatically serves /legal/license.html at the clean URL
+# /legal/license (and likewise for vendor-agreement). The rules below normalise
+# legacy / alternate URLs to those canonical clean paths so the legal documents
+# are reachable from every known link, and never fall back to the homepage.
+
+/legal/license.html            /legal/license            301
+/legal/vendor-agreement.html   /legal/vendor-agreement   301
+/legal/vendor.html             /legal/vendor-agreement   301
+/vendor-agreement              /legal/vendor-agreement   301

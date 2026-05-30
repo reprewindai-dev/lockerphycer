@@ -1,0 +1,13 @@
+# Cloudflare Pages headers for the Veklom marketing site (apps/web/static).
+
+/*
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+/static/css/*
+  Cache-Control: public, max-age=86400
+
+/legal/*
+  X-Robots-Tag: index, follow

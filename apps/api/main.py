@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
+from fastapi.responses import JSONResponse, HTMLResponse, FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import uvicorn
@@ -282,6 +282,72 @@ async def veklom_landing():
     if index.exists():
         return FileResponse(index, media_type="text/html")
     return HTMLResponse("<h1>Veklom Sovereign AI Hub</h1><p>Frontend not built yet.</p>")
+
+
+# ── Public legal pages ────────────────────────────────────────────────────────
+# Served as standalone documents so they never fall back to the homepage.
+@app.get("/legal/license", tags=["Legal"], response_class=HTMLResponse)
+async def legal_license():
+    """Serve the Veklom Software License Agreement."""
+    page = STATIC_DIR / "legal" / "license.html"
+    if page.exists():
+        return FileResponse(page, media_type="text/html")
+    return HTMLResponse("<h1>Software License Agreement not found</h1>", status_code=404)
+
+
+@app.get("/legal/vendor-agreement", tags=["Legal"], response_class=HTMLResponse)
+async def legal_vendor_agreement():
+    """Serve the Veklom Vendor Services Agreement."""
+    page = STATIC_DIR / "legal" / "vendor-agreement.html"
+    if page.exists():
+        return FileResponse(page, media_type="text/html")
+    return HTMLResponse("<h1>Vendor Services Agreement not found</h1>", status_code=404)
+
+
+# Canonical redirects for legacy / alternate legal URLs.
+@app.get("/legal/license.html", include_in_schema=False)
+async def legal_license_html_redirect():
+    return RedirectResponse(url="/legal/license", status_code=301)
+
+
+@app.get("/legal/vendor-agreement.html", include_in_schema=False)
+async def legal_vendor_agreement_html_redirect():
+    return RedirectResponse(url="/legal/vendor-agreement", status_code=301)
+
+
+@app.get("/legal/vendor.html", include_in_schema=False)
+async def legal_vendor_html_redirect():
+    return RedirectResponse(url="/legal/vendor-agreement", status_code=301)
+
+
+@app.get("/vendor-agreement", include_in_schema=False)
+async def vendor_agreement_redirect():
+    return RedirectResponse(url="/legal/vendor-agreement", status_code=301)
+
+
+# Root-level discoverability files (served from /static on disk).
+@app.get("/sitemap.xml", include_in_schema=False)
+async def sitemap_xml():
+    f = STATIC_DIR / "sitemap.xml"
+    if f.exists():
+        return FileResponse(f, media_type="application/xml")
+    raise HTTPException(status_code=404)
+
+
+@app.get("/robots.txt", include_in_schema=False)
+async def robots_txt():
+    f = STATIC_DIR / "robots.txt"
+    if f.exists():
+        return FileResponse(f, media_type="text/plain")
+    raise HTTPException(status_code=404)
+
+
+@app.get("/llms.txt", include_in_schema=False)
+async def llms_txt():
+    f = STATIC_DIR / "llms.txt"
+    if f.exists():
+        return FileResponse(f, media_type="text/plain")
+    raise HTTPException(status_code=404)
 
 
 # Mount landing-page static assets
