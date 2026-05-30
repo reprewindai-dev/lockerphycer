@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /command-center/
+
+Sitemap: https://veklom.com/sitemap.xml
