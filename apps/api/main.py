@@ -100,6 +100,7 @@ from apps.api.routers.verticals import router as verticals_router
 from apps.api.routers import terminal_ws
 from apps.api.routers import agents as agents_router
 from apps.api.routers import actors as actors_router
+from apps.api.routers import x402 as x402_router
 from core.utils.logging import setup_logging
 
 
@@ -243,6 +244,31 @@ async def lockersphere_landing():
 
 
 # ---------------------------------------------------------------------------
+# x402 discovery document
+# ---------------------------------------------------------------------------
+@app.get("/.well-known/x402", tags=["x402"], include_in_schema=False)
+async def x402_discovery():
+    """x402 protocol discovery document — lists payment-gated endpoints and accepted payment methods."""
+    return JSONResponse({
+        "x402Version": 2,
+        "accepts": [
+            {
+                "scheme": "exact",
+                "network": "base",
+                "currency": "USDC",
+                "facilitatorUrl": "https://x402.org/facilitator",
+            }
+        ],
+        "endpoints": [
+            {"path": "/api/v1/x402/gate",         "description": "Payment-gated resource access"},
+            {"path": "/api/v1/x402/payment",      "description": "Initiate x402 payment flow"},
+            {"path": "/api/v1/x402/budget",       "description": "Budget management for x402 sessions"},
+            {"path": "/api/v1/x402/transactions", "description": "x402 transaction history"},
+        ],
+    })
+
+
+# ---------------------------------------------------------------------------
 # API Routers — source of truth endpoints
 # ---------------------------------------------------------------------------
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
@@ -262,6 +288,7 @@ app.include_router(command_center.router, prefix="/api/v1/command-center", tags=
 app.include_router(agents_router.router, prefix="/api/v1/agents", tags=["Agent Workforce"])
 app.include_router(actors_router.router, prefix="/api/v1", tags=["Execution Packs"])
 app.include_router(terminal_ws.router, tags=["Terminal WebSocket"])
+app.include_router(x402_router.router, prefix="/api/v1/x402", tags=["x402"])
 
 from apps.api.routers.marketplace_catalog import router as marketplace_catalog_router
 app.include_router(marketplace_catalog_router, prefix="/api/v1", tags=["Marketplace Catalog"])
