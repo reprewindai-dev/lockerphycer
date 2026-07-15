@@ -15,8 +15,9 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     DEBUG: bool = False
     LOG_LEVEL: str = "INFO"
-    FRONTEND_URL: str = "http://localhost:8000"
-    API_URL: str = "http://localhost:8000"
+    APP_PORT: int = 8010
+    FRONTEND_URL: str = "http://localhost:8010"
+    API_URL: str = "http://localhost:8010"
     ADMIN_EMAIL: str = "admin@lockerphycer.local"
 
     SECRET_KEY: str = Field(default="change-me-only-for-local-dev-32-bytes-minimum", min_length=32)
