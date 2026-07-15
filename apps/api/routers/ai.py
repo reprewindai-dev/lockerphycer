@@ -4,13 +4,13 @@ AI Services Routes
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc, and_
+from sqlalchemy import select, desc, and_, func, update
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
 from core.database.database import get_db
 from db.models import AIRequest, AIModel, User
-from apps.api.routers.auth import get_current_user
+from core.security.auth import get_current_user
 from apps.api.schemas.ai import AIRequestResponse, AIModelResponse, AIAnalysisRequest, AIAnalysisResponse
 
 router = APIRouter()
@@ -223,8 +223,10 @@ async def activate_ai_model(
     
     # Deactivate other models of the same type
     await db.execute(
-        select(AIModel).where(AIModel.model_type == model.model_type)
-    ).update({"is_active": False})
+        update(AIModel)
+        .where(AIModel.model_type == model.model_type)
+        .values(is_active=False)
+    )
     
     # Activate this model
     model.is_active = True

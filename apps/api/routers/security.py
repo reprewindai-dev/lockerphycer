@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 
 from core.database.database import get_db
 from db.models import SecurityEvent, User, ThreatType, SecurityLevel
-from apps.api.routers.auth import get_current_user
+from core.security.auth import get_current_user
 from apps.api.schemas.security import SecurityEventResponse, SecurityEventCreate, ThreatStats, SecurityControlResponse
 
 router = APIRouter()

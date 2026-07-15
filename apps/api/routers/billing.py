@@ -42,6 +42,15 @@ PRICING = {
         "byok_gov_per_k": 1000,
         "managed_gov_per_k": 2000,
     },
+    "managed_service": {
+        "base_managed_ops_monthly": 150000,
+        "per_environment_after_first": 50000,
+        "per_cluster": 75000,
+        "per_node": 6500,
+        "regulated_workload_addon": 125000,
+        "air_gapped_addon": 300000,
+        "minimum_onboarding": 500000,
+    },
 }
 
 

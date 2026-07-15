@@ -130,6 +130,61 @@
                 </div>
             </div>
 
+            <!-- Revenue Control Plane -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <h3 class="text-xl font-semibold mb-2">BYOK Cost Control</h3>
+                    <p class="text-sm text-gray-600 mb-4">Provider spend, cache savings, and local-route savings.</p>
+                    <div class="space-y-3">
+                        <div>
+                            <p class="text-xs uppercase tracking-wide text-gray-500">Provider Spend</p>
+                            <p id="byok-provider-spend" class="text-2xl font-bold text-gray-900">$0.00</p>
+                        </div>
+                        <div>
+                            <p class="text-xs uppercase tracking-wide text-gray-500">Measured Savings</p>
+                            <p id="byok-savings" class="text-2xl font-bold text-green-600">$0.00</p>
+                        </div>
+                        <div>
+                            <p class="text-xs uppercase tracking-wide text-gray-500">Savings Rate</p>
+                            <p id="byok-savings-rate" class="text-lg font-semibold text-gray-900">0%</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <h3 class="text-xl font-semibold mb-2">Compliance Mappings</h3>
+                    <p class="text-sm text-gray-600 mb-4">Pre-filled audit matrices for SOC 2, HIPAA, GDPR, and PIPEDA.</p>
+                    <div class="space-y-3">
+                        <div>
+                            <p class="text-xs uppercase tracking-wide text-gray-500">Mapped Controls</p>
+                            <p id="compliance-count" class="text-2xl font-bold text-gray-900">0</p>
+                        </div>
+                        <button onclick="seedComplianceMappings()" class="bg-gray-900 hover:bg-gray-800 text-white px-4 py-2 rounded text-sm">
+                            Seed Templates
+                        </button>
+                        <a href="/api/v1/business/compliance-mappings/export.csv" class="inline-block ml-2 text-sm text-blue-600 hover:text-blue-700">
+                            Export CSV
+                        </a>
+                    </div>
+                </div>
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <h3 class="text-xl font-semibold mb-2">Managed Service Quote</h3>
+                    <p class="text-sm text-gray-600 mb-4">Pricing scales with environments, clusters, nodes, and regulated workload burden.</p>
+                    <div class="grid grid-cols-3 gap-2 mb-3">
+                        <input id="quote-envs" type="number" min="1" value="1" class="border rounded px-2 py-2 text-sm" title="Environments">
+                        <input id="quote-clusters" type="number" min="1" value="1" class="border rounded px-2 py-2 text-sm" title="Clusters">
+                        <input id="quote-nodes" type="number" min="1" value="3" class="border rounded px-2 py-2 text-sm" title="Nodes">
+                    </div>
+                    <div class="flex items-center gap-4 mb-3 text-sm">
+                        <label><input id="quote-regulated" type="checkbox" class="mr-1"> Regulated</label>
+                        <label><input id="quote-airgap" type="checkbox" class="mr-1"> Air-gapped</label>
+                    </div>
+                    <button onclick="quoteManagedService()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded text-sm">
+                        Calculate
+                    </button>
+                    <p id="managed-service-quote" class="mt-3 text-lg font-bold text-gray-900">$0.00/mo</p>
+                </div>
+            </div>
+
             <!-- Security Controls -->
             <div class="bg-white rounded-lg shadow-md p-6 mb-8">
                 <h3 class="text-xl font-semibold mb-4">Security Controls</h3>
@@ -231,8 +286,14 @@
         let dashboardData = {
             metrics: {},
             threats: [],
-            securityControls: {}
+            securityControls: {},
+            business: {}
         };
+
+        const token = localStorage.getItem('lockerphycer_token');
+        if (token) {
+            axios.defaults.headers.common.Authorization = `Bearer ${token}`;
+        }
 
         // Initialize dashboard
         document.addEventListener('DOMContentLoaded', function() {
@@ -258,6 +319,8 @@
                 // Load security controls
                 const controlsResponse = await axios.get('/api/v1/security/controls');
                 dashboardData.securityControls = controlsResponse.data;
+
+                await loadBusinessDashboard();
 
                 updateUI();
             } catch (error) {
@@ -343,6 +406,70 @@
 
             // Update charts
             updateCharts();
+            updateBusinessUI();
+        }
+
+        async function loadBusinessDashboard() {
+            try {
+                const workspaceId = localStorage.getItem('lockerphycer_workspace_id');
+                const [complianceResponse, pricingResponse] = await Promise.all([
+                    axios.get('/api/v1/business/compliance-mappings'),
+                    axios.get('/api/v1/business/managed-service/pricing')
+                ]);
+                let byokResponse = { data: { totals: {} } };
+                if (workspaceId) {
+                    byokResponse = await axios.get(`/api/v1/business/byok-cost/${workspaceId}`);
+                }
+                dashboardData.business = {
+                    compliance: complianceResponse.data,
+                    pricing: pricingResponse.data,
+                    byok: byokResponse.data
+                };
+            } catch (error) {
+                dashboardData.business = {
+                    compliance: { total: 0 },
+                    byok: { totals: { provider_cost_cents: 0, total_savings_cents: 0, savings_rate_pct: 0 } }
+                };
+            }
+        }
+
+        function updateBusinessUI() {
+            const byok = dashboardData.business.byok?.totals || {};
+            document.getElementById('byok-provider-spend').textContent = formatCents(byok.provider_cost_cents || 0);
+            document.getElementById('byok-savings').textContent = formatCents(byok.total_savings_cents || 0);
+            document.getElementById('byok-savings-rate').textContent = `${byok.savings_rate_pct || 0}%`;
+            document.getElementById('compliance-count').textContent = dashboardData.business.compliance?.total || 0;
+        }
+
+        function formatCents(cents) {
+            return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format((cents || 0) / 100);
+        }
+
+        async function seedComplianceMappings() {
+            try {
+                await axios.post('/api/v1/business/compliance-mappings/seed');
+                await loadBusinessDashboard();
+                updateBusinessUI();
+            } catch (error) {
+                alert('Admin token required to seed compliance mappings.');
+            }
+        }
+
+        async function quoteManagedService() {
+            const payload = {
+                environment_count: Number(document.getElementById('quote-envs').value || 1),
+                cluster_count: Number(document.getElementById('quote-clusters').value || 1),
+                node_count: Number(document.getElementById('quote-nodes').value || 1),
+                regulated_workload: document.getElementById('quote-regulated').checked,
+                air_gapped: document.getElementById('quote-airgap').checked
+            };
+            try {
+                const response = await axios.post('/api/v1/business/managed-service/quote', payload);
+                document.getElementById('managed-service-quote').textContent = `${formatCents(response.data.monthly_fee_cents)}/mo`;
+            } catch (error) {
+                const base = 150000 + (payload.cluster_count * 75000) + (payload.node_count * 6500);
+                document.getElementById('managed-service-quote').textContent = `${formatCents(base)}/mo estimate`;
+            }
         }
 
         // Render threats

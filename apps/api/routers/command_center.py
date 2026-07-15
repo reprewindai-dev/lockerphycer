@@ -22,6 +22,8 @@ from db.models import (
     WalletTransaction,
     UptimeCheck,
     Alert,
+    AIProviderUsage,
+    ManagedServiceQuote,
 )
 
 router = APIRouter()
@@ -60,6 +62,15 @@ async def command_overview(
             select(func.count()).select_from(SecurityEvent).where(SecurityEvent.status == "open")
         )
     ).scalar() or 0
+    ai_provider_spend = (
+        await db.execute(select(func.coalesce(func.sum(AIProviderUsage.provider_cost_cents), 0)))
+    ).scalar() or 0
+    ai_baseline_spend = (
+        await db.execute(select(func.coalesce(func.sum(AIProviderUsage.baseline_cost_cents), 0)))
+    ).scalar() or 0
+    managed_quotes = (
+        await db.execute(select(func.count()).select_from(ManagedServiceQuote))
+    ).scalar() or 0
 
     return {
         "users": {"total": total_users},
@@ -74,6 +85,9 @@ async def command_overview(
             "trial_conversions_30d": 0,
             "marketplace_gross_30d_cents": 0,
             "past_due_subs": 0,
+            "ai_provider_spend_cents": ai_provider_spend,
+            "ai_savings_cents": max(ai_baseline_spend - ai_provider_spend, 0),
+            "managed_service_quotes": managed_quotes,
         },
         "timestamp": now.isoformat(),
     }

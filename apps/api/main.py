@@ -95,7 +95,7 @@ def _setup_otel():
 _setup_otel()
 
 from apps.api.routers import auth, users, security, monitoring, ai
-from apps.api.routers import workspace, marketplace, billing, gpc, gpc_proxy, platform_pulse, feedback, command_center
+from apps.api.routers import workspace, marketplace, billing, business, gpc, gpc_proxy, platform_pulse, feedback, command_center
 from apps.api.routers.verticals import router as verticals_router
 from apps.api.routers import terminal_ws
 from apps.api.routers import agents as agents_router
@@ -254,6 +254,7 @@ app.include_router(verticals_router, prefix="/api/v1/verticals", tags=["Vertical
 app.include_router(workspace.router, prefix="/api/v1/workspace", tags=["Workspace"])
 app.include_router(marketplace.router, prefix="/api/v1/marketplace", tags=["Marketplace"])
 app.include_router(billing.router, prefix="/api/v1/billing", tags=["Billing"])
+app.include_router(business.router, prefix="/api/v1/business", tags=["Business Control Plane"])
 app.include_router(gpc.router, prefix="/api/v1/gpc", tags=["GPC"])
 app.include_router(gpc_proxy.router, prefix="/gpc-engine", tags=["GPC Proxy"])
 app.include_router(platform_pulse.router, prefix="/api/v1/platform", tags=["Platform"])

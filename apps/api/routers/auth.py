@@ -5,6 +5,7 @@ Authentication Routes
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from datetime import datetime, timedelta
 from typing import Optional
 import jwt
@@ -28,7 +29,7 @@ async def register(
     """Register a new user"""
     
     # Check if user already exists
-    existing_user = await db.get(User, user_data.email)
+    existing_user = (await db.execute(select(User).where(User.email == user_data.email))).scalars().first()
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -60,7 +61,7 @@ async def login(
     """Authenticate user and return tokens"""
     
     # Find user by email
-    user = await db.get(User, login_data.email)
+    user = (await db.execute(select(User).where(User.email == login_data.email))).scalars().first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -142,7 +143,7 @@ async def refresh_token(
         )
     
     # Find user
-    user = await db.get(User, email)
+    user = (await db.execute(select(User).where(User.email == email))).scalars().first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -179,8 +180,7 @@ async def logout(
     
     # Find and invalidate session
     session = await db.execute(
-        "SELECT * FROM user_sessions WHERE session_token = :token",
-        {"token": credentials.credentials}
+        select(UserSession).where(UserSession.session_token == credentials.credentials)
     )
     session_obj = session.scalar_one_or_none()
     
@@ -200,7 +200,7 @@ async def resolve_current_user(
     email = payload.get("sub")
     if not email:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-    user = await db.get(User, email)
+    user = (await db.execute(select(User).where(User.email == email))).scalars().first()
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     if user.status != UserStatus.ACTIVE:

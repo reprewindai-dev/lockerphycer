@@ -1,6 +1,6 @@
-# Locker Phycer - AI-Powered Security Platform
+# Locker Phycer - Sovereign AI Security Infrastructure
 
-Locker Phycer is an advanced AI-powered security and data management platform that provides comprehensive protection, monitoring, and intelligent automation for modern digital infrastructure.
+Locker Phycer is a self-hosted, revenue-ready AI security control plane for regulated teams. It combines authentication, RBAC, AI request governance, security telemetry, marketplace execution packs, wallet billing, and audit evidence inside the customer's own cloud boundary.
 
 ## Features
 
@@ -84,21 +84,16 @@ lockerphycer/
 3. **Install dependencies**
    ```bash
    pip install -r requirements.txt
-   npm install  # For frontend
    ```
 
-4. **Run database migrations**
+4. **Start the application**
    ```bash
-   alembic upgrade head
-   ```
-
-5. **Start the application**
-   ```bash
-   # Development
    uvicorn apps.api.main:app --reload
+   ```
 
-   # Production with Docker
-   docker-compose up -d
+5. **Production with Docker**
+   ```bash
+   docker compose up --build
    ```
 
 ### Environment Variables
@@ -159,15 +154,20 @@ black apps/
 mypy apps/
 ```
 
+## Monetization
+
+Locker Phycer ships with workspace tier state and wallet ledger support:
+
+- Community: free, 5 seats, 500 AI requests, 7-day logs.
+- Growth: $299/month, 25 seats, 5,000 AI requests, 30-day logs.
+- Sovereign: $799/month, 100 seats, 10,000 AI requests, 90-day logs.
+- Enterprise: custom air-gapped deployment, managed operations, and implementation fees.
+
 ## Deployment
 
 ### Docker Deployment
 ```bash
-# Build and deploy
-docker-compose -f docker-compose.production.yml up -d
-
-# Scale services
-docker-compose -f docker-compose.production.yml up -d --scale api=3
+docker compose up --build
 ```
 
 ### Kubernetes
