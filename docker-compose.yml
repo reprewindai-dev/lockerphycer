@@ -1,27 +1,69 @@
+# Lockerphycer production docker-compose for Coolify
+# Coolify will inject its own Traefik labels via the UI — do NOT add them here.
+# Just expose the right port and join the coolify network.
+
 services:
-  api:
+  lockerphycer-api:
     build: .
-    env_file:
-      - .env
-    ports:
-      - "${API_HOST_PORT:-8010}:8000"
+    container_name: lockerphycer-api
+    restart: unless-stopped
+    env_file: .env
+    networks:
+      - coolify
     depends_on:
-      - postgres
-      - redis
-  postgres:
+      lockerphycer-postgres:
+        condition: service_healthy
+      lockerphycer-redis:
+        condition: service_healthy
+    expose:
+      - "8000"
+    volumes:
+      - lockerphycer_logs:/app/logs
+      - lockerphycer_models:/app/models
+
+  lockerphycer-postgres:
     image: postgres:16-alpine
+    container_name: lockerphycer-postgres
+    restart: unless-stopped
     environment:
-      POSTGRES_DB: lockerphycer
-      POSTGRES_USER: lockerphycer
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lockerphycer_dev_password}
+      POSTGRES_DB: lockerphycer_production
+      POSTGRES_USER: lockerphycer_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-  redis:
+      - lockerphycer_pg_data:/var/lib/postgresql/data
+    networks:
+      - coolify
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lockerphycer_user -d lockerphycer_production"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    expose:
+      - "5432"
+
+  lockerphycer-redis:
     image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "yes"]
+    container_name: lockerphycer-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
     volumes:
-      - redis_data:/data
+      - lockerphycer_redis_data:/data
+    networks:
+      - coolify
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    expose:
+      - "6379"
+
+networks:
+  coolify:
+    external: true
 
 volumes:
-  postgres_data:
-  redis_data:
+  lockerphycer_logs:
+  lockerphycer_models:
+  lockerphycer_pg_data:
+  lockerphycer_redis_data:
