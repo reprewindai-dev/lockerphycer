@@ -100,6 +100,7 @@ from apps.api.routers.verticals import router as verticals_router
 from apps.api.routers import terminal_ws
 from apps.api.routers import agents as agents_router
 from apps.api.routers import actors as actors_router
+from apps.api.routers import compiler as compiler_router
 from core.utils.logging import setup_logging
 
 
@@ -261,7 +262,8 @@ app.include_router(platform_pulse.router, prefix="/api/v1/platform", tags=["Plat
 app.include_router(feedback.router, prefix="/api/v1/feedback", tags=["Feedback"])
 app.include_router(command_center.router, prefix="/api/v1/command-center", tags=["Command Center"])
 app.include_router(agents_router.router, prefix="/api/v1/agents", tags=["Agent Workforce"])
-app.include_router(actors_router.router, prefix="/api/v1", tags=["Execution Packs"])
+app.include_router(actors_router.router, prefix="/api/v1/actors", tags=["Execution Packs"])
+app.include_router(compiler_router.router, prefix="/api/v1/compiler", tags=["SEKED Compiler"])
 app.include_router(protocol.router, tags=["Veklom Protocol"])
 app.include_router(terminal_ws.router, tags=["Terminal WebSocket"])
 

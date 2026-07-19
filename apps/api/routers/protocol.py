@@ -27,7 +27,9 @@ MANIFEST: Dict[str, Any] = {
         "security-telemetry",
         "audit-evidence",
         "wallet-billing",
-        "mfa"
+        "mfa",
+        "seked-compilation",
+        "agent-assay"
     ],
     "links": {
         "core": "https://api.veklom.com/protocol.json",
@@ -67,3 +69,27 @@ async def introspect_capabilities(body: IntrospectQuery) -> Dict[str, Any]:
 async def health_dependencies() -> Dict[str, Any]:
     """Dependency health check."""
     return {"status": "ok", "dependencies": {}}
+
+@router.get("/.well-known/ai-catalog.json", include_in_schema=False)
+async def get_ai_catalog() -> Dict[str, Any]:
+    """
+    Agentic Resource Discovery (ARD) Catalog (Layer 2)
+    Provides a standardized machine-readable catalog of all API capabilities.
+    """
+    return {
+        "catalog_version": "1.0",
+        "provider": MANIFEST["service"],
+        "endpoints": [
+            {
+                "path": "/api/v1/compiler/compile",
+                "description": "SEKED Compiler for deterministic planning",
+                "method": "POST"
+            },
+            {
+                "path": "/api/v1/actors/{actor_id}/run",
+                "description": "Execute agent with CAPPO and PGL enforcement",
+                "method": "POST"
+            }
+        ],
+        "authentication": MANIFEST["auth_mode"]
+    }
