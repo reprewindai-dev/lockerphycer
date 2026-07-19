@@ -3,7 +3,7 @@ Authentication Schemas
 """
 
 from pydantic import BaseModel, EmailStr, Field
-from typing import Optional
+from typing import Optional, Dict, Any
 from datetime import datetime
 
 
@@ -34,6 +34,7 @@ class UserResponse(UserBase):
     created_at: datetime
     updated_at: Optional[datetime] = None
     last_login: Optional[datetime] = None
+    links: Optional[Dict[str, Any]] = Field(default=None, alias="_links")
     
     class Config:
         from_attributes = True
@@ -61,6 +62,7 @@ class TokenResponse(BaseModel):
 class LoginResponse(TokenResponse):
     """Login response schema"""
     user: UserResponse
+    links: Optional[Dict[str, Any]] = Field(default=None, alias="_links")
 
 
 class PasswordChange(BaseModel):

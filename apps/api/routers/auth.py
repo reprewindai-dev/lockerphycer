@@ -50,7 +50,13 @@ async def register(
     await db.commit()
     await db.refresh(user)
     
-    return UserResponse.from_orm(user)
+    response_data = UserResponse.from_orm(user).dict()
+    response_data["_links"] = {
+        "self": {"href": "/api/v1/auth/me", "method": "GET"},
+        "login": {"href": "/api/v1/auth/login", "method": "POST"}
+    }
+    
+    return UserResponse(**response_data)
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -116,12 +122,23 @@ async def login(
     db.add(session)
     await db.commit()
     
+    user_resp = UserResponse.from_orm(user).dict()
+    user_resp["_links"] = {
+        "self": {"href": "/api/v1/auth/me", "method": "GET"},
+        "workspace": {"href": "/api/v1/workspace", "method": "GET"}
+    }
+    
     return LoginResponse(
         access_token=access_token,
         refresh_token=refresh_token,
         token_type="bearer",
         expires_in=3600,
-        user=UserResponse.from_orm(user)
+        user=UserResponse(**user_resp),
+        _links={
+            "refresh": {"href": "/api/v1/auth/refresh", "method": "POST"},
+            "logout": {"href": "/api/v1/auth/logout", "method": "POST"},
+            "workspace": {"href": "/api/v1/workspace", "method": "GET"}
+        }
     )
 
 
@@ -162,12 +179,23 @@ async def refresh_token(
     
     await db.commit()
     
+    user_resp = UserResponse.from_orm(user).dict()
+    user_resp["_links"] = {
+        "self": {"href": "/api/v1/auth/me", "method": "GET"},
+        "workspace": {"href": "/api/v1/workspace", "method": "GET"}
+    }
+    
     return LoginResponse(
         access_token=access_token,
         refresh_token=refresh_token,
         token_type="bearer",
         expires_in=3600,
-        user=UserResponse.from_orm(user)
+        user=UserResponse(**user_resp),
+        _links={
+            "refresh": {"href": "/api/v1/auth/refresh", "method": "POST"},
+            "logout": {"href": "/api/v1/auth/logout", "method": "POST"},
+            "workspace": {"href": "/api/v1/workspace", "method": "GET"}
+        }
     )
 
 
@@ -215,4 +243,10 @@ async def get_current_user(
     current_user: User = Depends(resolve_current_user)
 ):
     """Get current user information"""
-    return UserResponse.from_orm(current_user)
+    user_resp = UserResponse.from_orm(current_user).dict()
+    user_resp["_links"] = {
+        "self": {"href": "/api/v1/auth/me", "method": "GET"},
+        "workspace": {"href": "/api/v1/workspace", "method": "GET"},
+        "logout": {"href": "/api/v1/auth/logout", "method": "POST"}
+    }
+    return UserResponse(**user_resp)
