@@ -19,7 +19,7 @@ class MetricsResponse(BaseModel):
 class SystemHealth(BaseModel):
     """System health schema"""
     status: str
-    score: int
+    score: Optional[int] = None
     components: Dict[str, Any]
     timestamp: datetime
 

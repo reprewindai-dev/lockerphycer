@@ -279,11 +279,15 @@ async def toggle_security_control(
 ):
     """Toggle security control"""
     
-    # In production, this would update the database
-    # For now, we'll just return success
-    return {
-        "message": f"Security control {control_name} {'enabled' if enabled else 'disabled'} successfully"
-    }
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail={
+            "error": "SECURITY_CONTROL_PERSISTENCE_UNAVAILABLE",
+            "control": control_name,
+            "execution_state": "BLOCKED",
+            "message": "The control registry is not connected; no mutation was applied.",
+        },
+    )
 
 
 @router.get("/dashboard")

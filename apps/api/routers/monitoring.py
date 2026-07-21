@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, and_
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
+import time
+import psutil
 
 from core.database.database import get_db
 from db.models import User, SecurityEvent, AIRequest, SystemMetrics
@@ -72,7 +74,7 @@ async def get_system_health(
     health_score = calculate_health_score(db_health, ai_health)
     
     return SystemHealth(
-        status="healthy" if health_score >= 80 else "degraded",
+        status="healthy" if health_score is not None and health_score >= 80 else ("degraded" if health_score is not None else "unmeasured"),
         score=health_score,
         components={
             "database": db_health,
@@ -250,23 +252,16 @@ async def get_ai_metrics(db: AsyncSession, start_date: datetime, end_date: datet
 async def get_system_metrics(db: AsyncSession, start_date: datetime, end_date: datetime) -> Dict[str, Any]:
     """Get system performance metrics"""
     
-    # Get CPU usage (mock data for now)
-    cpu_usage = 45.2
-    
-    # Get memory usage (mock data for now)
-    memory_usage = 67.8
-    
-    # Get disk usage (mock data for now)
-    disk_usage = 23.4
-    
-    # Get network traffic (mock data for now)
-    network_traffic = 1024.5  # MB/s
+    memory = psutil.virtual_memory()
+    disk = psutil.disk_usage("/")
+    network = psutil.net_io_counters()
     
     return {
-        "cpu_usage": cpu_usage,
-        "memory_usage": memory_usage,
-        "disk_usage": disk_usage,
-        "network_traffic": network_traffic,
+        "cpu_usage": psutil.cpu_percent(interval=0.05),
+        "memory_usage": memory.percent,
+        "disk_usage": disk.percent,
+        "network_bytes_total": network.bytes_sent + network.bytes_recv,
+        "measured_at": datetime.utcnow().isoformat(),
         "uptime": get_system_uptime()
     }
 
@@ -277,15 +272,11 @@ async def check_database_health(db: AsyncSession) -> Dict[str, Any]:
         # Test database connection
         await db.execute(select(1))
         
-        # Get connection pool stats (mock data)
+        started = time.perf_counter()
         return {
             "status": "healthy",
-            "connection_pool": {
-                "active": 5,
-                "idle": 15,
-                "total": 20
-            },
-            "response_time": 0.05  # seconds
+            "response_time": time.perf_counter() - started,
+            "connection_verified": True,
         }
     except Exception as e:
         return {
@@ -298,19 +289,19 @@ async def check_database_health(db: AsyncSession) -> Dict[str, Any]:
 async def check_ai_services_health() -> Dict[str, Any]:
     """Check AI services health"""
     
-    # Mock AI services health check
+    # No provider probe is configured in this router. Do not fabricate model
+    # counts or utilization; callers must treat this as unmeasured.
     return {
-        "status": "healthy",
-        "models_loaded": 3,
-        "total_models": 5,
-        "gpu_utilization": 23.5,
-        "memory_usage": 45.2
+        "status": "unmeasured",
+        "reason": "AI provider health probe is not configured",
     }
 
 
-def calculate_health_score(db_health: Dict[str, Any], ai_health: Dict[str, Any]) -> int:
+def calculate_health_score(db_health: Dict[str, Any], ai_health: Dict[str, Any]) -> Optional[int]:
     """Calculate overall health score"""
     
+    if db_health.get("status") == "unmeasured" or ai_health.get("status") == "unmeasured":
+        return None
     score = 100
     
     # Database health impact
