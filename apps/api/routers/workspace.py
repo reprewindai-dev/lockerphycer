@@ -1,14 +1,16 @@
 """Workspace management routes"""
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
-from typing import Optional
 from datetime import datetime
-import uuid
+from typing import Optional
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database.database import get_db
-from db.models import Workspace, User, SubscriptionTier, MarketplaceListing
+from core.security.auth import require_admin
+from db.models import MarketplaceListing, SubscriptionTier, Workspace
 
 router = APIRouter()
 
@@ -17,11 +19,10 @@ router = APIRouter()
 async def list_workspaces(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Workspace).where(Workspace.is_active == True).offset(skip).limit(limit)
-    )
+    result = await db.execute(select(Workspace).where(Workspace.is_active == True).offset(skip).limit(limit))
     workspaces = result.scalars().all()
     return [
         {
@@ -40,11 +41,12 @@ async def list_workspaces(
 async def create_workspace(
     name: str,
     slug: Optional[str] = None,
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     ws = Workspace(
-        id=str(uuid.uuid4()),
-        owner_id="system",
+        id=str(uuid4()),
+        owner_id=admin_email,
         name=name,
         slug=slug or name.lower().replace(" ", "-"),
         tier=SubscriptionTier.FREE,
@@ -56,14 +58,12 @@ async def create_workspace(
 
 
 @router.get("/{workspace_id}")
-async def get_workspace(workspace_id: str, db: AsyncSession = Depends(get_db)):
+async def get_workspace(workspace_id: str, admin_email: str = Depends(require_admin), db: AsyncSession = Depends(get_db)):
     ws = await db.get(Workspace, workspace_id)
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")
     listing_count = await db.execute(
-        select(func.count()).select_from(MarketplaceListing).where(
-            MarketplaceListing.workspace_id == workspace_id
-        )
+        select(func.count()).select_from(MarketplaceListing).where(MarketplaceListing.workspace_id == workspace_id)
     )
     return {
         "id": ws.id,
@@ -82,6 +82,7 @@ async def update_workspace(
     workspace_id: str,
     name: Optional[str] = None,
     tier: Optional[str] = None,
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     ws = await db.get(Workspace, workspace_id)
@@ -97,7 +98,11 @@ async def update_workspace(
 
 
 @router.delete("/{workspace_id}")
-async def deactivate_workspace(workspace_id: str, db: AsyncSession = Depends(get_db)):
+async def deactivate_workspace(
+    workspace_id: str,
+    admin_email: str = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
     ws = await db.get(Workspace, workspace_id)
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")

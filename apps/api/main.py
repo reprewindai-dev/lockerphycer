@@ -101,6 +101,7 @@ from apps.api.routers import terminal_ws
 from apps.api.routers import agents as agents_router
 from apps.api.routers import actors as actors_router
 from apps.api.routers import compiler as compiler_router
+from apps.api.routers import mcp, capi
 from core.utils.logging import setup_logging
 
 
@@ -108,9 +109,12 @@ from core.utils.logging import setup_logging
 async def lifespan(app: FastAPI):
     """Application lifespan events"""
     logging.info(f"Starting {settings.APP_NAME} v{settings.VERSION}")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    logging.info("Application startup complete — all tables created")
+    if settings.DEBUG or settings.ENVIRONMENT != "production":
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logging.info("Application startup complete — tables ensured for local runtime")
+    else:
+        logging.info("Production startup skipped automatic schema creation")
     yield
     logging.info("Application shutdown")
 
@@ -149,7 +153,7 @@ _cors_origins = (
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
-    allow_credentials=True,
+    allow_credentials=not settings.DEBUG,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -269,6 +273,8 @@ app.include_router(terminal_ws.router, tags=["Terminal WebSocket"])
 
 from apps.api.routers.marketplace_catalog import router as marketplace_catalog_router
 app.include_router(marketplace_catalog_router, prefix="/api/v1", tags=["Marketplace Catalog"])
+app.include_router(mcp.router, prefix="/api/v1", tags=["MCP Bridge"])
+app.include_router(capi.router, prefix="/api/v1", tags=["cAPI Interlink"])
 
 
 # ---------------------------------------------------------------------------

@@ -1,252 +1,176 @@
-"""
-Authentication Routes
-"""
+"""Authentication Routes"""
+
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
-from datetime import datetime, timedelta
-from typing import Optional
-import jwt
+from sqlalchemy.ext.asyncio import AsyncSession
 from passlib.context import CryptContext
 
-from core.database.database import get_db
-from db.models import User, UserSession, UserRole, UserStatus
-from core.security.auth import create_access_token, verify_token, get_password_hash
 from apps.api.schemas.auth import LoginRequest, LoginResponse, RegisterRequest, UserResponse
+from core.database.database import get_db
+from core.security.auth import create_access_token, create_refresh_token, get_current_user, get_password_hash, verify_password, verify_token
+from db.models import User, UserSession, UserRole, UserStatus
 
 router = APIRouter()
 security = HTTPBearer()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
+def _user_response(user: User) -> UserResponse:
+    payload = UserResponse.model_validate(user).model_dump(mode="json")
+    payload["_links"] = {
+        "self": {"href": "/api/v1/auth/me", "method": "GET"},
+        "workspace": {"href": "/api/v1/workspace", "method": "GET"},
+    }
+    return UserResponse(**payload)
+
+
 @router.post("/register", response_model=UserResponse)
-async def register(
-    user_data: RegisterRequest,
-    db: AsyncSession = Depends(get_db)
-):
-    """Register a new user"""
-    
-    # Check if user already exists
+async def register(user_data: RegisterRequest, db: AsyncSession = Depends(get_db)):
     existing_user = (await db.execute(select(User).where(User.email == user_data.email))).scalars().first()
     if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
-        )
-    
-    # Create new user
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
+
     user = User(
         email=user_data.email,
         username=user_data.username,
         hashed_password=get_password_hash(user_data.password),
         full_name=user_data.full_name,
         role=UserRole.USER,
-        status=UserStatus.ACTIVE
+        status=UserStatus.ACTIVE,
     )
-    
     db.add(user)
     await db.commit()
     await db.refresh(user)
-    
-    response_data = UserResponse.from_orm(user).dict()
-    response_data["_links"] = {
-        "self": {"href": "/api/v1/auth/me", "method": "GET"},
-        "login": {"href": "/api/v1/auth/login", "method": "POST"}
-    }
-    
-    return UserResponse(**response_data)
+    return _user_response(user)
 
 
 @router.post("/login", response_model=LoginResponse)
-async def login(
-    login_data: LoginRequest,
-    db: AsyncSession = Depends(get_db)
-):
-    """Authenticate user and return tokens"""
-    
-    # Find user by email
+async def login(login_data: LoginRequest, db: AsyncSession = Depends(get_db)):
     user = (await db.execute(select(User).where(User.email == login_data.email))).scalars().first()
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials"
-        )
-    
-    # Check password
-    if not pwd_context.verify(login_data.password, user.hashed_password):
-        # Increment failed login attempts
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    if user.status == UserStatus.LOCKED and user.account_locked_until and user.account_locked_until > datetime.utcnow():
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account temporarily locked")
+
+    if not verify_password(login_data.password, user.hashed_password):
         user.failed_login_attempts += 1
-        
-        # Lock account if too many failed attempts
         if user.failed_login_attempts >= 10:
             user.account_locked_until = datetime.utcnow() + timedelta(minutes=30)
             user.status = UserStatus.LOCKED
-        
         await db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials"
-        )
-    
-    # Check if account is locked
-    if user.status == UserStatus.LOCKED and user.account_locked_until > datetime.utcnow():
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Account temporarily locked"
-        )
-    
-    # Reset failed login attempts
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
     user.failed_login_attempts = 0
+    user.account_locked_until = None
+    user.status = UserStatus.ACTIVE
     user.last_login = datetime.utcnow()
     user.last_activity = datetime.utcnow()
-    
-    # Create session
-    access_token = create_access_token(data={"sub": user.email})
-    refresh_token = create_access_token(
-        data={"sub": user.email}, 
-        expires_delta=timedelta(days=7)
-    )
-    
-    # Create session record
+
+    access_token = create_access_token({"sub": user.email})
+    refresh_token = create_refresh_token({"sub": user.email})
+
     session = UserSession(
         user_id=user.id,
         session_token=access_token,
         refresh_token=refresh_token,
-        ip_address="127.0.0.1",  # Would get from request
-        user_agent="Locker Phycer Client",  # Would get from request
-        expires_at=datetime.utcnow() + timedelta(hours=1)
+        ip_address="127.0.0.1",
+        user_agent="Locker Phycer Client",
+        expires_at=datetime.utcnow() + timedelta(minutes=60),
     )
-    
     db.add(session)
     await db.commit()
-    
-    user_resp = UserResponse.from_orm(user).dict()
-    user_resp["_links"] = {
-        "self": {"href": "/api/v1/auth/me", "method": "GET"},
-        "workspace": {"href": "/api/v1/workspace", "method": "GET"}
-    }
-    
+    await db.refresh(user)
+
     return LoginResponse(
         access_token=access_token,
         refresh_token=refresh_token,
         token_type="bearer",
         expires_in=3600,
-        user=UserResponse(**user_resp),
+        user=_user_response(user),
         _links={
             "refresh": {"href": "/api/v1/auth/refresh", "method": "POST"},
             "logout": {"href": "/api/v1/auth/logout", "method": "POST"},
-            "workspace": {"href": "/api/v1/workspace", "method": "GET"}
-        }
+            "workspace": {"href": "/api/v1/workspace", "method": "GET"},
+        },
     )
 
 
 @router.post("/refresh", response_model=LoginResponse)
 async def refresh_token(
     credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
-    """Refresh access token"""
-    
-    # Verify refresh token
-    payload = verify_token(credentials.credentials)
+    payload = verify_token(credentials.credentials, expected_type="refresh")
     email = payload.get("sub")
-    
     if not email:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token"
-        )
-    
-    # Find user
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+
     user = (await db.execute(select(User).where(User.email == email))).scalars().first()
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found"
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
+    session_result = await db.execute(
+        select(UserSession).where(
+            UserSession.refresh_token == credentials.credentials,
+            UserSession.user_id == user.id,
+            UserSession.is_active == True,
+            UserSession.expires_at > datetime.utcnow(),
         )
-    
-    # Create new tokens
-    access_token = create_access_token(data={"sub": user.email})
-    refresh_token = create_access_token(
-        data={"sub": user.email}, 
-        expires_delta=timedelta(days=7)
     )
-    
-    # Update session
+    session = session_result.scalars().first()
+    if not session:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session revoked or expired")
+
+    access_token = create_access_token({"sub": user.email})
+    refresh_token = create_refresh_token({"sub": user.email})
+    session.session_token = access_token
+    session.refresh_token = refresh_token
+    session.last_accessed = datetime.utcnow()
     user.last_activity = datetime.utcnow()
-    
     await db.commit()
-    
-    user_resp = UserResponse.from_orm(user).dict()
-    user_resp["_links"] = {
-        "self": {"href": "/api/v1/auth/me", "method": "GET"},
-        "workspace": {"href": "/api/v1/workspace", "method": "GET"}
-    }
-    
+
     return LoginResponse(
         access_token=access_token,
         refresh_token=refresh_token,
         token_type="bearer",
         expires_in=3600,
-        user=UserResponse(**user_resp),
+        user=_user_response(user),
         _links={
             "refresh": {"href": "/api/v1/auth/refresh", "method": "POST"},
             "logout": {"href": "/api/v1/auth/logout", "method": "POST"},
-            "workspace": {"href": "/api/v1/workspace", "method": "GET"}
-        }
+            "workspace": {"href": "/api/v1/workspace", "method": "GET"},
+        },
     )
 
 
 @router.post("/logout")
-async def logout(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: AsyncSession = Depends(get_db)
-):
-    """Logout user and invalidate session"""
-    
-    # Find and invalidate session
-    session = await db.execute(
-        select(UserSession).where(UserSession.session_token == credentials.credentials)
-    )
+async def logout(credentials: HTTPAuthorizationCredentials = Depends(security), db: AsyncSession = Depends(get_db)):
+    session = await db.execute(select(UserSession).where(UserSession.session_token == credentials.credentials))
     session_obj = session.scalar_one_or_none()
-    
     if session_obj:
         session_obj.is_active = False
+        session_obj.last_accessed = datetime.utcnow()
         await db.commit()
-    
     return {"message": "Successfully logged out"}
 
 
 async def resolve_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ) -> User:
-    """Get current authenticated user"""
-    payload = verify_token(credentials.credentials)
-    email = payload.get("sub")
-    if not email:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-    user = (await db.execute(select(User).where(User.email == email))).scalars().first()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
-    if user.status != UserStatus.ACTIVE:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account is not active")
-    user.last_activity = datetime.utcnow()
-    await db.commit()
-    return user
+    return await get_current_user(credentials, db)
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_current_user(
-    current_user: User = Depends(resolve_current_user)
-):
-    """Get current user information"""
-    user_resp = UserResponse.from_orm(current_user).dict()
-    user_resp["_links"] = {
+async def get_current_user_info(current_user: User = Depends(resolve_current_user)):
+    payload = UserResponse.model_validate(current_user).model_dump(mode="json")
+    payload["_links"] = {
         "self": {"href": "/api/v1/auth/me", "method": "GET"},
         "workspace": {"href": "/api/v1/workspace", "method": "GET"},
-        "logout": {"href": "/api/v1/auth/logout", "method": "POST"}
+        "logout": {"href": "/api/v1/auth/logout", "method": "POST"},
     }
-    return UserResponse(**user_resp)
+    return UserResponse(**payload)

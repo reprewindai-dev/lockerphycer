@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta
 from typing import Optional
+from uuid import uuid4
 
 import jwt
 from fastapi import Depends, HTTPException, status
@@ -28,13 +29,23 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     expires = datetime.utcnow() + (expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
     payload = data.copy()
-    payload.update({"exp": expires, "iat": datetime.utcnow()})
+    payload.update({"exp": expires, "iat": datetime.utcnow(), "jti": str(uuid4()), "token_type": "access"})
     return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
 
 
-def verify_token(token: str) -> dict:
+def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    expires = datetime.utcnow() + (expires_delta or timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS))
+    payload = data.copy()
+    payload.update({"exp": expires, "iat": datetime.utcnow(), "jti": str(uuid4()), "token_type": "refresh"})
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
+
+
+def verify_token(token: str, expected_type: str | None = None) -> dict:
     try:
-        return jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+        if expected_type and payload.get("token_type") != expected_type:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        return payload
     except jwt.PyJWTError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from exc
 
@@ -43,9 +54,9 @@ async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer),
     db: AsyncSession = Depends(get_db),
 ):
-    from db.models import User, UserStatus
+    from db.models import User, UserSession, UserStatus
 
-    payload = verify_token(credentials.credentials)
+    payload = verify_token(credentials.credentials, expected_type="access")
     email = payload.get("sub")
     if not email:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
@@ -55,7 +66,19 @@ async def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     if user.status != UserStatus.ACTIVE:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account is not active")
+    session_result = await db.execute(
+        select(UserSession).where(
+            UserSession.session_token == credentials.credentials,
+            UserSession.user_id == user.id,
+            UserSession.is_active == True,
+            UserSession.expires_at > datetime.utcnow(),
+        )
+    )
+    session = session_result.scalars().first()
+    if not session:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session revoked or expired")
     user.last_activity = datetime.utcnow()
+    session.last_accessed = datetime.utcnow()
     await db.commit()
     return user
 

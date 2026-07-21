@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     API_URL: str = "http://localhost:8010"
     ADMIN_EMAIL: str = "admin@lockerphycer.local"
 
-    SECRET_KEY: str = Field(default="change-me-only-for-local-dev-32-bytes-minimum", min_length=32)
+    SECRET_KEY: str = Field(..., min_length=32)
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     PASSWORD_MIN_LENGTH: int = 8

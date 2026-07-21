@@ -1,14 +1,16 @@
 """Billing, wallet, and subscription routes"""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc
-from typing import Optional
 from datetime import datetime
-import uuid
+from typing import Optional
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import desc, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database.database import get_db
-from db.models import WalletTransaction, Workspace, SubscriptionTier
+from core.security.auth import require_admin
+from db.models import SubscriptionTier, WalletTransaction, Workspace
 
 router = APIRouter()
 
@@ -60,7 +62,7 @@ async def get_pricing():
 
 
 @router.get("/wallet/{workspace_id}")
-async def get_wallet(workspace_id: str, db: AsyncSession = Depends(get_db)):
+async def get_wallet(workspace_id: str, admin_email: str = Depends(require_admin), db: AsyncSession = Depends(get_db)):
     ws = await db.get(Workspace, workspace_id)
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")
@@ -72,11 +74,7 @@ async def get_wallet(workspace_id: str, db: AsyncSession = Depends(get_db)):
     )
     tx = last_tx.scalars().first()
     balance = tx.balance_after_cents if tx else 0
-    return {
-        "workspace_id": workspace_id,
-        "balance_cents": balance,
-        "tier": ws.tier.value if ws.tier else "free",
-    }
+    return {"workspace_id": workspace_id, "balance_cents": balance, "tier": ws.tier.value if ws.tier else "free"}
 
 
 @router.get("/wallet/{workspace_id}/transactions")
@@ -84,6 +82,7 @@ async def list_transactions(
     workspace_id: str,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
@@ -111,11 +110,14 @@ async def list_transactions(
 async def fund_wallet(
     workspace_id: str,
     amount_cents: int,
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     ws = await db.get(Workspace, workspace_id)
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")
+    if amount_cents <= 0:
+        raise HTTPException(status_code=400, detail="amount_cents must be positive")
     last_tx = await db.execute(
         select(WalletTransaction)
         .where(WalletTransaction.workspace_id == workspace_id)
@@ -125,7 +127,7 @@ async def fund_wallet(
     prev = last_tx.scalars().first()
     balance = (prev.balance_after_cents if prev else 0) + amount_cents
     tx = WalletTransaction(
-        id=str(uuid.uuid4()),
+        id=str(uuid4()),
         workspace_id=workspace_id,
         amount_cents=amount_cents,
         balance_after_cents=balance,
@@ -141,6 +143,7 @@ async def fund_wallet(
 async def activate_workspace(
     workspace_id: str,
     tier: str = "founding",
+    admin_email: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     ws = await db.get(Workspace, workspace_id)
