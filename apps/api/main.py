@@ -115,7 +115,16 @@ async def lifespan(app: FastAPI):
         logging.info("Application startup complete — tables ensured for local runtime")
     else:
         logging.info("Production startup skipped automatic schema creation")
-    yield
+        
+    from core.utils.capi_registration import register_with_capi
+    import asyncio
+    capi_task = asyncio.create_task(register_with_capi(settings))
+    
+    try:
+        yield
+    finally:
+        if capi_task and not capi_task.done():
+            capi_task.cancel()
     logging.info("Application shutdown")
 
 
