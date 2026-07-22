@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     OTEL_SERVICE_NAME: str = "lockerphycer-api"
     OTEL_EXPORTER_OTLP_ENDPOINT: str = ""
 
-    CAPI_BACKEND_URL: str | None = "http://capi-container:3003"
+    CAPI_BACKEND_URL: str | None = "http://capi-container:3002"
     CAPI_API_KEY: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
