@@ -211,11 +211,22 @@ async def x402_gate(
     """
     resource_path = "/api/v1/x402/gate"
 
+_processed_payments = set()
+
     if not x_payment:
         return _payment_required_response(resource_path, "Veklom API gateway access — $0.10 USDC")
 
+    if x_payment in _processed_payments:
+        # Idempotent response for already settled payment
+        return JSONResponse(
+            status_code=200,
+            content={"access": "granted", "note": "Payment previously verified and settled."},
+            headers={"x-payment-response": base64.b64encode(json.dumps({"success": True}).encode()).decode()},
+        )
+
     verification = await _verify_payment(x_payment, resource_path)
     await _settle_payment(x_payment, resource_path)
+    _processed_payments.add(x_payment)
 
     return JSONResponse(
         status_code=200,
