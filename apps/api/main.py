@@ -95,7 +95,7 @@ def _setup_otel():
 _setup_otel()
 
 from apps.api.routers import auth, users, security, monitoring, ai
-from apps.api.routers import workspace, marketplace, billing, business, gpc, gpc_proxy, platform_pulse, feedback, command_center, protocol
+from apps.api.routers import workspace, marketplace, billing, business, gpc, gpc_proxy, platform_pulse, feedback, command_center, protocol, health_dependencies
 from apps.api.routers.verticals import router as verticals_router
 from apps.api.routers import terminal_ws
 from apps.api.routers import agents as agents_router
@@ -278,6 +278,7 @@ app.include_router(agents_router.router, prefix="/api/v1/agents", tags=["Agent W
 app.include_router(actors_router.router, prefix="/api/v1/actors", tags=["Execution Packs"])
 app.include_router(compiler_router.router, prefix="/api/v1/compiler", tags=["SEKED Compiler"])
 app.include_router(protocol.router, tags=["Veklom Protocol"])
+app.include_router(health_dependencies.router, tags=["Health"])
 app.include_router(terminal_ws.router, tags=["Terminal WebSocket"])
 
 from apps.api.routers.marketplace_catalog import router as marketplace_catalog_router

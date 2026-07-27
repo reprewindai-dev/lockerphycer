@@ -126,7 +126,7 @@ STRIPE_SECRET_KEY=your-stripe-key
 ## API Documentation
 
 Once running, visit:
-- **API Docs**: http://localhost:8010/docs
+- **API Docs**: http://localhost:8092/docs
 - **Admin Dashboard**: http://localhost:3000
 - **Monitoring**: http://localhost:3001
 

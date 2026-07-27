@@ -42,7 +42,7 @@ Billing state is persisted at workspace level with Stripe customer/subscription 
 - Preserve audit hashes and ledger records; never mutate them for cosmetic cleanup.
 
 ## Deployment Notes
-- Local: `APP_PORT=8010 python -m apps.api.main`
-- Container: `docker compose up --build` exposes the API on `http://localhost:${API_HOST_PORT:-8010}` while keeping container port `8000` internal.
+- Local: `APP_PORT=8092 python -m apps.api.main`
+- Container: `docker compose up --build` exposes the API on port `8092`.
 - Production database: set `DATABASE_URL=postgresql://...`; the app converts it to asyncpg automatically.
 - Required production secrets: `SECRET_KEY`, `DATABASE_URL`, `POSTGRES_PASSWORD`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, provider API keys as needed.
