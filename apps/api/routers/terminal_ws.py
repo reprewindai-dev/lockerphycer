@@ -65,22 +65,30 @@ async def _broadcast(terminal_type: str, payload: dict):
 async def terminal_websocket(
     websocket: WebSocket,
     terminal: str = Query("quantum"),
-    caller_email: str = Query(None),
+    token: str = Query(None),
 ):
     """WebSocket handshake for operator terminals.
 
     Query params
     ------------
     terminal : str   – ``quantum`` | ``veklom``
-    caller_email : str – must match ADMIN_EMAIL (dev-mode only; production uses token auth)
+    token : str      – JWT access token for authentication
     """
-    # In dev mode allow query-param auth; in production require proper token
-    if not settings.DEBUG:
-        if caller_email != ADMIN_EMAIL:
-            await websocket.close(code=4003, reason="Forbidden: admin only")
+    from core.security.auth import verify_token
+    from fastapi import status
+
+    if not token:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Missing token")
+        return
+
+    try:
+        payload = verify_token(token, expected_type="access")
+        email = payload.get("sub")
+        if email != ADMIN_EMAIL:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Forbidden: admin only")
             return
-    elif caller_email and caller_email != ADMIN_EMAIL:
-        await websocket.close(code=4003, reason="Forbidden: admin only")
+    except Exception as e:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason=f"Invalid token: {e}")
         return
 
     if terminal not in _connections:

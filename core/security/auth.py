@@ -88,3 +88,31 @@ async def require_admin(current_user=Depends(get_current_user)) -> str:
     if role != "admin" and current_user.email != settings.ADMIN_EMAIL:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
     return current_user.email
+
+
+def sanitize_input(input_string: str) -> str:
+    """Sanitize user input to prevent XSS/Injection patterns."""
+    dangerous_chars = "<>\"'&"
+    for char in dangerous_chars:
+        input_string = input_string.replace(char, "")
+    return input_string.strip()
+
+
+def is_safe_url(url: str) -> bool:
+    """Check if URL is safe (prevents protocols like javascript: / data: / vbscript: / file:)."""
+    dangerous_schemes = ["javascript:", "data:", "vbscript:", "file:"]
+    lower = url.lower().strip()
+    return not any(lower.startswith(s) for s in dangerous_schemes)
+
+
+def generate_csrf_token() -> str:
+    """Generate a secure CSRF token."""
+    import secrets
+    return secrets.token_urlsafe(32)
+
+
+def verify_csrf_token(token: str, expected_token: str) -> bool:
+    """Verify a CSRF token using secure hmac comparison."""
+    import hmac
+    return hmac.compare_digest(token, expected_token)
+

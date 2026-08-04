@@ -22,6 +22,19 @@ async def register_with_capi(settings: Settings) -> None:
         "telemetry_supported": True
     }
     
+    import socket
+    from urllib.parse import urlparse
+    
+    # DNS Fallback logic for gaierror Name resolution
+    parsed = urlparse(url)
+    try:
+        # Try to resolve the hostname explicitly to catch DNS errors early
+        socket.gethostbyname(parsed.hostname)
+    except socket.gaierror:
+        logger.warning(f"[cAPI] DNS resolution failed for {parsed.hostname}. Falling back to internal Docker network (capi-container).")
+        # Swap hostname for 'capi-container' (default Coolify internal name)
+        url = url.replace(parsed.hostname, "capi-container")
+
     for attempt in range(5):
         try:
             async with httpx.AsyncClient() as client:
@@ -32,6 +45,6 @@ async def register_with_capi(settings: Settings) -> None:
                 else:
                     logger.warning(f"[cAPI] Failed to register: {response.text}")
         except Exception as e:
-            logger.error(f"[cAPI] Error registering with cAPI (attempt {attempt + 1}): {e}")
+            logger.error(f"[cAPI] Error registering with cAPI (attempt {attempt + 1}): {type(e).__name__} - {e}")
             
         await asyncio.sleep(5)

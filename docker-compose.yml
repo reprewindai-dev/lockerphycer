@@ -16,7 +16,7 @@ services:
       lockerphycer-redis:
         condition: service_healthy
     expose:
-      - "8000"
+      - "8092"
     volumes:
       - lockerphycer_logs:/app/logs
       - lockerphycer_models:/app/models

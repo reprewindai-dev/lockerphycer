@@ -168,6 +168,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from core.security.middleware import SecurityMiddleware
+
+app.add_middleware(SecurityMiddleware)
+
+
 
 # Exception handlers
 @app.exception_handler(HTTPException)

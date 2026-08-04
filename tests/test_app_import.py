@@ -156,3 +156,30 @@ def test_business_control_plane_endpoints():
         )
         assert quote.status_code == 200
         assert quote.json()["monthly_fee_cents"] > 150000
+
+
+def test_intrusion_detection_system_blocks_malicious_requests():
+    _set_test_env()
+    from fastapi.testclient import TestClient
+    from apps.api.main import app
+
+    with TestClient(app) as client:
+        # SQL Injection attempt
+        response = client.get("/health?query=union select * from users")
+        assert response.status_code == 400
+        assert "Security violation detected" in response.json()["error"]["message"]
+
+        # Path Traversal attempt
+        response = client.get("/health?path=../../etc/passwd")
+        assert response.status_code == 400
+        assert "Security violation detected" in response.json()["error"]["message"]
+
+        # Command Injection attempt
+        response = client.get("/health?cmd=; rm -rf /")
+        assert response.status_code == 400
+        assert "Security violation detected" in response.json()["error"]["message"]
+
+        # Clean request should pass
+        response = client.get("/health")
+        assert response.status_code == 200
+
