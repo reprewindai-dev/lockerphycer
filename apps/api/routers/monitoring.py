@@ -333,6 +333,36 @@ async def get_user_activity_stats(db: AsyncSession) -> Dict[str, Any]:
     # Active users in last 24 hours
     day_ago = datetime.utcnow() - timedelta(days=1)
     active_day_result = await db.execute(
+    
+    # Database health impact
+    if db_health["status"] != "healthy":
+        score -= 50
+    elif db_health.get("response_time", 0) > 1.0:
+        score -= 20
+    
+    # AI services health impact
+    if ai_health["status"] != "healthy":
+        score -= 30
+    elif ai_health.get("gpu_utilization", 0) > 90:
+        score -= 10
+    
+    return max(0, score)
+
+
+async def get_user_activity_stats(db: AsyncSession) -> Dict[str, Any]:
+    """Get user activity statistics"""
+    
+    # Active users in last hour
+    hour_ago = datetime.utcnow() - timedelta(hours=1)
+    active_hour_result = await db.execute(
+        select(func.count()).select_from(User)
+        .where(User.last_activity >= hour_ago)
+    )
+    active_last_hour = active_hour_result.scalar()
+    
+    # Active users in last 24 hours
+    day_ago = datetime.utcnow() - timedelta(days=1)
+    active_day_result = await db.execute(
         select(func.count()).select_from(User)
         .where(User.last_activity >= day_ago)
     )
@@ -340,41 +370,64 @@ async def get_user_activity_stats(db: AsyncSession) -> Dict[str, Any]:
     
     return {
         "active_last_hour": active_last_hour,
-        "active_last_day": active_last_day,
-        "peak_hour": 14,  # 2 PM
-        "peak_day": "Tuesday"
+        "active_last_day": active_last_day
     }
 
 
 async def get_api_activity_stats(db: AsyncSession) -> Dict[str, Any]:
-    """Get API activity statistics"""
-    
-    # Mock API stats (would come from request logs in production)
+    """Get API activity statistics.
+
+    No request-log table is currently maintained. All fields are unmeasured.
+    Callers must not treat absent data as zero activity.
+    """
     return {
-        "requests_per_second": 45.2,
-        "avg_response_time": 0.234,
-        "error_rate": 0.02,
-        "most_popular_endpoint": "/api/v1/auth/login",
-        "total_requests_today": 124567
+        "requests_per_second": None,
+        "avg_response_time": None,
+        "error_rate": None,
+        "most_popular_endpoint": None,
+        "total_requests_today": None,
+        "note": "unmeasured — no request-log table configured"
     }
 
 
 async def get_security_activity_stats(db: AsyncSession) -> Dict[str, Any]:
-    """Get security activity statistics"""
-    
-    # Recent security events
+    """Get security activity statistics from the real SecurityEvent table."""
+
     day_ago = datetime.utcnow() - timedelta(days=1)
+
     recent_events_result = await db.execute(
         select(func.count()).select_from(SecurityEvent)
         .where(SecurityEvent.created_at >= day_ago)
     )
     recent_events = recent_events_result.scalar()
-    
+
+    blocked_result = await db.execute(
+        select(func.count()).select_from(SecurityEvent)
+        .where(
+            and_(
+                SecurityEvent.created_at >= day_ago,
+                SecurityEvent.status == "blocked"
+            )
+        )
+    )
+    blocked_attempts = blocked_result.scalar()
+
+    failed_login_result = await db.execute(
+        select(func.count()).select_from(SecurityEvent)
+        .where(
+            and_(
+                SecurityEvent.created_at >= day_ago,
+                SecurityEvent.event_type == "failed_login"
+            )
+        )
+    )
+    failed_logins = failed_login_result.scalar()
+
     return {
         "events_last_24h": recent_events,
-        "blocked_attempts": 234,
-        "failed_logins": 45,
-        "suspicious_ips": 12
+        "blocked_attempts": blocked_attempts,
+        "failed_logins": failed_logins,
+        "suspicious_ips": None  # unmeasured — requires IP reputation table
     }
 
 
@@ -386,71 +439,74 @@ def calculate_growth_rate(new_count: int, total_count: int) -> float:
 
 
 def get_system_uptime() -> str:
-    """Get system uptime (mock data)"""
-    # In production, this would get actual system uptime
-    return "15 days, 7 hours, 23 minutes"
+    """Get real system uptime using psutil."""
+    import time as _time
+    uptime_seconds = _time.time() - psutil.boot_time()
+    days, remainder = divmod(int(uptime_seconds), 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, _ = divmod(remainder, 60)
+    return f"{days} days, {hours} hours, {minutes} minutes"
 
 
 async def get_current_metrics(db: AsyncSession) -> Dict[str, Any]:
-    """Get current real-time metrics"""
-    
-    # Get current user count
+    """Get current real-time metrics using real DB queries and psutil."""
+
     current_users_result = await db.execute(
         select(func.count()).select_from(User)
     )
     current_users = current_users_result.scalar()
-    
-    # Get current active threats
+
     active_threats_result = await db.execute(
         select(func.count()).select_from(SecurityEvent)
         .where(SecurityEvent.status == "open")
     )
     active_threats = active_threats_result.scalar()
-    
+
+    load_avg = psutil.getloadavg() if hasattr(psutil, "getloadavg") else (None, None, None)
+    memory = psutil.virtual_memory()
+
     return {
         "active_users": current_users,
         "active_threats": active_threats,
-        "system_load": 45.2,
-        "memory_usage": 67.8
+        "system_load_1m": load_avg[0],
+        "memory_usage_percent": memory.percent
     }
 
 
 async def get_recent_alerts(db: AsyncSession) -> List[Dict[str, Any]]:
-    """Get recent alerts"""
-    
-    # Mock alerts data
+    """Get recent alerts from the real SecurityEvent table."""
+
+    result = await db.execute(
+        select(SecurityEvent)
+        .where(SecurityEvent.status == "open")
+        .order_by(desc(SecurityEvent.created_at))
+        .limit(20)
+    )
+    events = result.scalars().all()
+
     return [
         {
-            "id": "1",
-            "type": "security",
-            "message": "Multiple failed login attempts detected",
-            "severity": "medium",
-            "timestamp": datetime.utcnow() - timedelta(minutes=15)
-        },
-        {
-            "id": "2",
-            "type": "performance",
-            "message": "High CPU usage detected",
-            "severity": "low",
-            "timestamp": datetime.utcnow() - timedelta(hours=1)
-        },
-        {
-            "id": "3",
-            "type": "ai",
-            "message": "AI model performance degraded",
-            "severity": "high",
-            "timestamp": datetime.utcnow() - timedelta(hours=2)
+            "id": str(event.id),
+            "type": event.event_type,
+            "message": event.description if hasattr(event, "description") else str(event.event_type),
+            "severity": event.security_level if hasattr(event, "security_level") else "unknown",
+            "timestamp": event.created_at
         }
+        for event in events
     ]
 
 
 async def get_performance_metrics(db: AsyncSession) -> Dict[str, Any]:
-    """Get performance metrics"""
-    
-    # Mock performance data
+    """Get performance metrics.
+
+    Response-time percentiles, throughput, and error-rate require an
+    instrumented request-log table that is not yet configured. Fields
+    are returned as null rather than fabricated values.
+    """
     return {
-        "response_time_p95": 0.456,
-        "throughput": 1234.5,
-        "error_rate": 0.01,
-        "availability": 99.95
+        "response_time_p95": None,
+        "throughput": None,
+        "error_rate": None,
+        "availability": None,
+        "note": "unmeasured — APM instrumentation not yet configured"
     }
