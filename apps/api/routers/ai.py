@@ -178,7 +178,7 @@ async def upload_ai_model(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Upload new AI model — binary is persisted to MODEL_UPLOAD_DIR"""
+    """Upload new AI model — binary is persisted to MODEL_UPLOAD_DIR with strict boundary checks"""
 
     if current_user.role.value not in ["admin", "ai_operator"]:
         raise HTTPException(
@@ -186,14 +186,52 @@ async def upload_ai_model(
             detail="Not enough permissions to upload models"
         )
 
-    os.makedirs(MODEL_UPLOAD_DIR, exist_ok=True)
-    file_path = os.path.join(MODEL_UPLOAD_DIR, file.filename)
+    # 1. Enforce allowed model extensions
+    allowed_extensions = {".bin", ".gguf", ".pt", ".pth", ".safetensors", ".onnx"}
+    ext = os.path.splitext(file.filename)[1].lower() if file.filename else ""
+    if ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid model extension {ext}. Allowed: {', '.join(allowed_extensions)}"
+        )
 
+    # 2. Generate server-side object ID to prevent path traversal
+    import uuid
+    server_filename = f"{uuid.uuid4().hex}{ext}"
+    
+    os.makedirs(MODEL_UPLOAD_DIR, exist_ok=True)
+    
+    # 3. Resolve path and ensure it remains inside MODEL_UPLOAD_DIR
+    base_dir = os.path.abspath(MODEL_UPLOAD_DIR)
+    file_path = os.path.abspath(os.path.join(base_dir, server_filename))
+    
+    if not file_path.startswith(base_dir):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Path resolution failed security boundaries"
+        )
+
+    # 4. Enforce byte limit (5GB) and write with restrictive permissions
+    MAX_SIZE = 5 * 1024 * 1024 * 1024
+    total_size = 0
+    
     try:
         async with aiofiles.open(file_path, "wb") as f:
-            content = await file.read()
-            await f.write(content)
+            # Read in 1MB chunks to avoid memory exhaustion
+            while chunk := await file.read(1024 * 1024):
+                total_size += len(chunk)
+                if total_size > MAX_SIZE:
+                    os.remove(file_path)
+                    raise HTTPException(
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        detail="Model file exceeds 5GB limit"
+                    )
+                await f.write(chunk)
+        # 5. Restrictive permissions
+        os.chmod(file_path, 0o644)
     except OSError as exc:
+        if os.path.exists(file_path):
+            os.remove(file_path)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to persist model file: {exc}"
