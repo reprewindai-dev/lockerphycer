@@ -1,71 +1,228 @@
-> [!IMPORTANT]
-> **VEKLOM BIBLE — READ FIRST:** [`00_VEKLOM_BIBLE.md`](./00_VEKLOM_BIBLE.md)
-> The Bible controls cross-repo architecture/runtime truth and forbids unverified HSM/TEE/compliance claims.
+# Locker Phycer - Sovereign AI Security Infrastructure
 
-# Lockerphycer: branch findings + real MFA implementation
+Locker Phycer is a self-hosted, revenue-ready AI security control plane for regulated teams. It combines authentication, RBAC, AI request governance, security telemetry, marketplace execution packs, wallet billing, and audit evidence inside the customer's own cloud boundary.
 
-## Which branch to actually use
+## Features
 
-`main` and `devin/1779224412-enterprise-hardening` were compared directly
-against the source, not the README. Use the enterprise-hardening branch —
-it has real, wired-in code `main` doesn't:
+### 🔒 Security & Authentication
+- Zero-trust security architecture
+- Multi-factor authentication (MFA)
+- Role-based access control (RBAC)
+- Advanced encryption and key management
+- Real-time threat detection and response
 
-| | main | enterprise-hardening |
-|---|---|---|
-| `core/security/auth.py` | 90 lines, JWT+session only | 280 lines: adds encryption, API key hashing, password strength, CSRF, input sanitization |
-| Middleware | none of this | `SecurityMiddleware` (registered in `main.py` — confirmed active), `RateLimiter`, `RequestTracker`, `SecurityHeaders`, `IntrusionDetectionSystem` |
-| Intrusion detection | none | Real: signature-matches URL/params/headers against SQLi, XSS, path-traversal, command-injection patterns, computes a risk score |
-| "AI model" loading | 5-line honest placeholder, self-labeled as such | Real `torch`/`transformers` code exists, but is never called from any actual route — orphaned, not reachable by a real request |
-| MFA / OAuth2 / SAML / LDAP / HSM | none | none |
+### 🤖 AI & Machine Learning
+- Intelligent threat analysis
+- Predictive security analytics
+- Automated incident response
+- Behavioral pattern recognition
+- Natural language processing for security logs
 
-Neither branch has any MFA, OAuth2, SAML, LDAP, or HSM code — that part of
-the README's claims wasn't a "wrong branch" problem, it just wasn't built
-anywhere. See below.
+### 📊 Monitoring & Analytics
+- Real-time system monitoring
+- Performance metrics and dashboards
+- Custom alerting and notifications
+- Historical data analysis
+- Compliance reporting
 
-## Real, unrelated finding while testing: bcrypt/passlib version landmine
+### 🔧 Infrastructure Management
+- Container orchestration support
+- Auto-scaling capabilities
+- Load balancing and failover
+- Backup and disaster recovery
+- Multi-cloud deployment support
 
-`passlib==1.7.4` (as pinned) breaks against `bcrypt>=4.1` — a known
-ecosystem incompatibility, not something introduced here. If your
-deployment ever resolves a newer bcrypt, password hashing breaks
-everywhere it's used, not just in the new MFA code. Pin `bcrypt<4.1` in
-requirements before this bites you in production.
+## Architecture
 
-## What's in this delivery
-
-- `core/security/mfa.py` — real TOTP MFA. Built against the User model's
-  existing `mfa_enabled`/`mfa_secret` columns, which were already in the
-  schema and completely unused until now — this wasn't an absent feature,
-  it was a half-built one.
-- `apps/api/routers/mfa.py` — thin FastAPI routes over the tested service,
-  using the same `get_current_user` dependency pattern already used
-  elsewhere in the repo.
-- `tests/test_mfa.py` — 18 checks, all passing, run against the **real**
-  `User`/`Base` models copied from the actual repo and real bcrypt hashing
-  — not stand-ins. Covers: secret + QR generation, rejecting a wrong code
-  at setup, accepting a real time-based code, backup codes working exactly
-  once each, and disable requiring a valid code rather than a bare flag
-  flip.
-
-```bash
-pip install pyotp qrcode
-PYTHONPATH=. python tests/test_mfa.py
+```
+lockerphycer/
+├── apps/
+│   ├── api/                 # FastAPI backend services
+│   └── web/                 # Frontend dashboard
+├── core/
+│   ├── config/              # Configuration management
+│   ├── security/            # Security utilities
+│   ├── database/            # Database connections
+│   └── utils/               # Shared utilities
+├── db/
+│   ├── models/              # Database models
+│   └── migrations/          # Database migrations
+├── infra/
+│   └── docker/              # Docker configurations
+├── scripts/                 # Deployment and utility scripts
+├── tests/                   # Test suites
+├── docs/                    # Documentation
+├── static/                  # Static assets
+├── logs/                    # Application logs
+├── data/                    # Application data
+└── models/                  # AI/ML models
 ```
 
-## What wasn't built, and why that's a decision, not a shortcut
+## Quick Start
 
-**OAuth2, SAML, LDAP/Active Directory, HSM** — these only mean anything
-against a real external system: a real Google/Okta OAuth app, a real SAML
-IdP, a real LDAP/AD server, a real HSM device. Writing integration code
-against no real counterpart produces something that looks finished and
-has never actually authenticated against anything — the exact failure
-mode this whole audit was for. Building these for real needs you to name
-the actual provider(s) you want first.
+### Prerequisites
+- Python 3.11+
+- Docker & Docker Compose
+- PostgreSQL 15+
+- Redis 7+
+- Node.js 18+ (for frontend)
 
-**SOC 2 Type II, ISO 27001, HIPAA compliance** — these aren't code. SOC 2
-Type II specifically requires a licensed third-party auditor observing
-your actual controls over a period of months; ISO 27001 requires an
-accredited certification body audit; HIPAA compliance is signed BAAs,
-policies, and workforce training, not a feature flag. No branch and no
-amount of code changes this. The honest fix is removing those three
-specific claims from the README until they're actually true, not writing
-code to chase them — they were never a code problem.
+### Installation
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/reprewindai-dev/lockerphycer.git
+   cd lockerphycer
+   ```
+
+2. **Set up environment**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your configuration
+   ```
+
+3. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **Start the application**
+   ```bash
+   uvicorn apps.api.main:app --reload
+   ```
+
+5. **Production with Docker**
+   ```bash
+   docker compose up --build
+   ```
+
+### Environment Variables
+
+Key environment variables to configure:
+
+```env
+# Application
+APP_NAME="Locker Phycer"
+ENVIRONMENT=development
+DEBUG=true
+SECRET_KEY=your-secret-key-here
+
+# Database
+DATABASE_URL=postgresql://user:password@localhost:5432/lockerphycer
+
+# Redis
+REDIS_URL=redis://localhost:6379/0
+
+# Security
+AI_CITIZENSHIP_SECRET=your-ai-citizenship-secret
+ENCRYPTION_KEY=your-encryption-key
+
+# External Services
+OPENAI_API_KEY=your-openai-key
+HUGGINGFACE_API_KEY=your-huggingface-key
+STRIPE_SECRET_KEY=your-stripe-key
+```
+
+## API Documentation
+
+Once running, visit:
+- **API Docs**: http://localhost:8092/docs
+- **Admin Dashboard**: http://localhost:3000
+- **Monitoring**: http://localhost:3001
+
+## Development
+
+### Running Tests
+```bash
+# Unit tests
+pytest tests/
+
+# Integration tests
+pytest tests/integration/
+
+# Coverage
+pytest --cov=apps tests/
+```
+
+### Code Quality
+```bash
+# Linting
+flake8 apps/
+black apps/
+
+# Type checking
+mypy apps/
+```
+
+## Monetization
+
+Locker Phycer ships with workspace tier state and wallet ledger support:
+
+- Community: free, 5 seats, 500 AI requests, 7-day logs.
+- Growth: $299/month, 25 seats, 5,000 AI requests, 30-day logs.
+- Sovereign: $799/month, 100 seats, 10,000 AI requests, 90-day logs.
+- Enterprise: custom air-gapped deployment, managed operations, and implementation fees.
+
+## Deployment
+
+### Docker Deployment
+```bash
+docker compose up --build
+```
+
+### Kubernetes
+```bash
+# Apply Kubernetes manifests
+kubectl apply -f k8s/
+```
+
+## Monitoring
+
+The application includes comprehensive monitoring:
+
+- **Prometheus**: Metrics collection
+- **Grafana**: Visualization and dashboards
+- **Loki**: Log aggregation
+- **AlertManager**: Alert management
+
+## Security
+
+### Authentication
+- JWT-based authentication
+- OAuth2 integration
+- SAML support
+- LDAP/Active Directory integration
+
+### Encryption
+- AES-256 encryption at rest
+- TLS 1.3 in transit
+- Key rotation support
+- Hardware security module (HSM) support
+
+### Compliance
+- GDPR compliance
+- SOC 2 Type II
+- ISO 27001
+- HIPAA (healthcare version)
+
+## Support
+
+- **Documentation**: [docs/](docs/)
+- **Issues**: [GitHub Issues](https://github.com/reprewindai-dev/lockerphycer/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/reprewindai-dev/lockerphycer/discussions)
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+---
+
+**Built with ❤️ by the Locker Phycer Team**

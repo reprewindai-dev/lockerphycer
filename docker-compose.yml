@@ -8,6 +8,8 @@ services:
     container_name: lockerphycer-api
     restart: unless-stopped
     env_file: .env
+    environment:
+      PORT: 8092
     networks:
       - coolify
     depends_on:
