@@ -15,9 +15,9 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     DEBUG: bool = False
     LOG_LEVEL: str = "INFO"
-    APP_PORT: int = 8010
-    FRONTEND_URL: str = "http://localhost:8010"
-    API_URL: str = "http://localhost:8010"
+    APP_PORT: int = 8092
+    FRONTEND_URL: str = "http://localhost:8092"
+    API_URL: str = "http://localhost:8092"
     ADMIN_EMAIL: str = "admin@lockerphycer.local"
 
     SECRET_KEY: str = Field(..., min_length=32)
@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     OTEL_SERVICE_NAME: str = "lockerphycer-api"
     OTEL_EXPORTER_OTLP_ENDPOINT: str = ""
 
-    CAPI_BACKEND_URL: str | None = "http://capi-container:3002"
+    CAPI_BACKEND_URL: str | None = "http://capi-container:3003"
     CAPI_API_KEY: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
