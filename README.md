@@ -1,3 +1,7 @@
+> [!IMPORTANT]
+> **VEKLOM BIBLE — READ FIRST:** [`00_VEKLOM_BIBLE.md`](./00_VEKLOM_BIBLE.md)
+> The Bible controls cross-repo architecture/runtime truth and forbids unverified HSM/TEE/compliance claims.
+
 # Lockerphycer: branch findings + real MFA implementation
 
 ## Which branch to actually use
