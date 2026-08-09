@@ -205,14 +205,14 @@ async def upload_ai_model(
     base_dir = os.path.abspath(MODEL_UPLOAD_DIR)
     file_path = os.path.abspath(os.path.join(base_dir, server_filename))
     
-    if not file_path.startswith(base_dir):
+    if os.path.commonpath([base_dir, file_path]) != base_dir:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Path resolution failed security boundaries"
         )
 
-    # 4. Enforce byte limit (5GB) and write with restrictive permissions
-    MAX_SIZE = 5 * 1024 * 1024 * 1024
+    # 4. Enforce byte limit (5MB) and write with restrictive permissions
+    MAX_SIZE = 5 * 1024 * 1024
     total_size = 0
     
     try:
@@ -224,11 +224,11 @@ async def upload_ai_model(
                     os.remove(file_path)
                     raise HTTPException(
                         status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                        detail="Model file exceeds 5GB limit"
+                        detail="Model file exceeds 5MB limit"
                     )
                 await f.write(chunk)
-        # 5. Restrictive permissions
-        os.chmod(file_path, 0o644)
+        # 5. Restrictive permissions (owner read/write only)
+        os.chmod(file_path, 0o600)
     except OSError as exc:
         if os.path.exists(file_path):
             os.remove(file_path)
