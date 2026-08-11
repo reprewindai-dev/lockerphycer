@@ -99,7 +99,7 @@ A production claim requires the relevant evidence chain, including as applicable
 5. required cAPI/CAPPO/Gnomledger/BYOS integration handshakes;
 6. current test, dependency, and security workflow results.
 
-Until those agree, `verified_runtime_state` remains empty / `NOT_VERIFIED`.
+Until those agree, `verified_runtime_state` remains `NOT_VERIFIED`.
 
 ## License
 
