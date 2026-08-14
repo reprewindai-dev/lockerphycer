@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from typing import Any
 
 import httpx
@@ -7,6 +8,10 @@ import httpx
 from core.config.settings import Settings
 
 logger = logging.getLogger(__name__)
+
+REGISTRATION_TIMEOUT_SECONDS = 5.0
+RETRY_SECONDS = 5.0
+DEFAULT_REGISTRY_TTL_MS = 300_000
 
 
 def build_registration_payload() -> dict[str, Any]:
@@ -76,47 +81,97 @@ def build_registration_payload() -> dict[str, Any]:
     }
 
 
-async def register_with_capi(settings: Settings) -> None:
-    """Registers Lockerphycer capabilities with the cAPI Universal USB layer."""
-    if not settings.CAPI_BACKEND_URL:
-        logger.info("[cAPI] Registration skipped: CAPI_BACKEND_URL is not set.")
-        return
-        
-    url = f"{settings.CAPI_BACKEND_URL.rstrip('/')}/api/v1/registry/register"
+def _heartbeat_interval_seconds(settings: Settings) -> float:
+    raw_ttl = getattr(settings, "CAPI_REGISTRY_TTL_MS", os.getenv("CAPI_REGISTRY_TTL_MS", DEFAULT_REGISTRY_TTL_MS))
+    try:
+        ttl_ms = int(raw_ttl)
+    except (TypeError, ValueError):
+        ttl_ms = DEFAULT_REGISTRY_TTL_MS
+    if ttl_ms <= 0:
+        ttl_ms = DEFAULT_REGISTRY_TTL_MS
+    return max(ttl_ms / 1_000 * 0.8, 0.001)
+
+
+async def _wait_for_stop(stop: asyncio.Event, seconds: float) -> None:
+    try:
+        await asyncio.wait_for(stop.wait(), timeout=seconds)
+    except TimeoutError:
+        pass
+
+
+def _registry_url(settings: Settings, path: str) -> str | None:
+    base_url = (settings.CAPI_BACKEND_URL or "").strip()
+    return f"{base_url.rstrip('/')}{path}" if base_url else None
+
+
+def _headers(settings: Settings) -> dict[str, str]:
     headers = {"Content-Type": "application/json"}
     if settings.CAPI_API_KEY:
         headers["Authorization"] = f"Bearer {settings.CAPI_API_KEY}"
-        
-    payload = build_registration_payload()
-    
-    import socket
-    from urllib.parse import urlparse
-    
-    # DNS Fallback logic for gaierror Name resolution
-    parsed = urlparse(url)
+    return headers
+
+
+async def register_with_capi(
+    settings: Settings, transport: httpx.AsyncBaseTransport | None = None
+) -> bool:
+    """Register Lockerphycer once; callers decide when a failed attempt is retried."""
+    url = _registry_url(settings, "/api/v1/registry/register")
+    if not url:
+        logger.info("cAPI registration skipped: CAPI_BACKEND_URL is not configured")
+        return False
+
     try:
-        # Try to resolve the hostname explicitly to catch DNS errors early
-        socket.gethostbyname(parsed.hostname)
-    except socket.gaierror:
-        logger.warning(f"[cAPI] DNS resolution failed for {parsed.hostname}. Falling back to internal Docker network (capi-container).")
-        # Swap hostname for 'capi-container' (default Coolify internal name)
-        url = url.replace(parsed.hostname, "capi-container")
+        async with httpx.AsyncClient(timeout=REGISTRATION_TIMEOUT_SECONDS, transport=transport) as client:
+            response = await client.post(url, json=build_registration_payload(), headers=_headers(settings))
+    except httpx.HTTPError as exc:
+        logger.warning("cAPI registration failed (%s)", type(exc).__name__)
+        return False
 
-    for attempt in range(5):
+    if response.status_code in (200, 201):
+        logger.info("Lockerphycer registered with cAPI")
+        return True
+    logger.warning("cAPI registration rejected with status %s", response.status_code)
+    return False
+
+
+async def heartbeat_until_missing(
+    settings: Settings, stop: asyncio.Event, transport: httpx.AsyncBaseTransport | None = None
+) -> bool:
+    """Refresh Lockerphycer registration until cAPI reports it missing or shutdown begins."""
+    url = _registry_url(settings, "/api/v1/registry/heartbeat")
+    if not url:
+        return False
+
+    while not stop.is_set():
+        await _wait_for_stop(stop, _heartbeat_interval_seconds(settings))
+        if stop.is_set():
+            return False
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(url, json=payload, headers=headers, timeout=5.0)
-                if response.status_code in (200, 201):
-                    logger.info("[cAPI] Successfully registered Lockerphycer with cAPI.")
-                    return
-                else:
-                    logger.warning(f"[cAPI] Failed to register: {response.text}")
-        except Exception as exc:  # noqa: BLE001 - registration must remain fail-soft
-            logger.warning(
-                "[cAPI] Registration attempt %s failed (%s)",
-                attempt + 1,
-                type(exc).__name__,
-            )
+            async with httpx.AsyncClient(timeout=REGISTRATION_TIMEOUT_SECONDS, transport=transport) as client:
+                response = await client.post(
+                    url,
+                    json={"service_name": "lockerphycer"},
+                    headers=_headers(settings),
+                )
+        except httpx.HTTPError as exc:
+            logger.warning("cAPI heartbeat failed (%s)", type(exc).__name__)
+            continue
 
-        if attempt < 4:
-            await asyncio.sleep(5)
+        if 200 <= response.status_code < 300:
+            continue
+        if response.status_code == 404:
+            logger.info("Lockerphycer cAPI registration is missing; re-registering")
+            return True
+        logger.warning("cAPI heartbeat rejected with status %s", response.status_code)
+    return False
+
+
+async def maintain_capi_registration(
+    settings: Settings, stop: asyncio.Event, transport: httpx.AsyncBaseTransport | None = None
+) -> None:
+    """Keep Lockerphycer registered without treating transport health as authority."""
+    while not stop.is_set():
+        if await register_with_capi(settings, transport):
+            await heartbeat_until_missing(settings, stop, transport)
+        else:
+            await _wait_for_stop(stop, RETRY_SECONDS)
