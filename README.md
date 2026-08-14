@@ -1,228 +1,106 @@
-# Locker Phycer - Sovereign AI Security Infrastructure
+# Locker Phycer
 
-Locker Phycer is a self-hosted, revenue-ready AI security control plane for regulated teams. It combines authentication, RBAC, AI request governance, security telemetry, marketplace execution packs, wallet billing, and audit evidence inside the customer's own cloud boundary.
+Locker Phycer is a Veklom security, key, and identity service. This repository contains a FastAPI application, security/authentication utilities, persistence integrations, health/protocol surfaces, and integration points for other Veklom services.
 
-## Features
+> [!IMPORTANT]
+> Repository source describes intended behavior; it is not proof of a live deployment. Runtime state remains `NOT_VERIFIED` until the deployed commit SHA, HTTP/protocol identity, container listener, and Traefik routing agree.
 
-### 🔒 Security & Authentication
-- Zero-trust security architecture
-- Multi-factor authentication (MFA)
-- Role-based access control (RBAC)
-- Advanced encryption and key management
-- Real-time threat detection and response
+## Current responsibility
 
-### 🤖 AI & Machine Learning
-- Intelligent threat analysis
-- Predictive security analytics
-- Automated incident response
-- Behavioral pattern recognition
-- Natural language processing for security logs
+### Observed current responsibility
 
-### 📊 Monitoring & Analytics
-- Real-time system monitoring
-- Performance metrics and dashboards
-- Custom alerting and notifications
-- Historical data analysis
-- Compliance reporting
+Locker Phycer currently provides the Veklom **governed security/key/identity surface**. Source includes authentication/security utilities, API routes, database/Redis configuration, protocol and dependency-health routes, and configuration for cAPI/CAPPO/Gnomledger/BYOS integration.
 
-### 🔧 Infrastructure Management
-- Container orchestration support
-- Auto-scaling capabilities
-- Load balancing and failover
-- Backup and disaster recovery
-- Multi-cloud deployment support
+This repository does **not** become the source of truth for responsibilities owned elsewhere:
 
-## Architecture
+- **cAPI** — canonical Interlink / cross-service connection layer;
+- **CAPPO** — governance and execution authorization;
+- **Gnomledger** — durable evidence and provenance;
+- **BYOS** — tenant/workspace execution substrate.
 
+### Target responsibility
+
+Future security capabilities may expand, but target architecture must not be documented as implemented or verified until source, tests, deployment configuration, and runtime evidence support the claim.
+
+## Runtime contract
+
+- canonical Locker Phycer application port: **8092**;
+- canonical cAPI service port: **3003**;
+- ports **3000** and **8000** are forbidden as Locker Phycer production/root application listeners or examples;
+- deployment/runtime configuration is supplied by the deployment environment;
+- secrets and internal credentials must not be committed.
+
+Local API documentation, when the application is running on the canonical development/default port, is available at:
+
+```text
+http://localhost:8092/docs
 ```
+
+That local URL is an example only; it does not establish production health or routing.
+
+## Source layout
+
+```text
 lockerphycer/
-├── apps/
-│   ├── api/                 # FastAPI backend services
-│   └── web/                 # Frontend dashboard
-├── core/
-│   ├── config/              # Configuration management
-│   ├── security/            # Security utilities
-│   ├── database/            # Database connections
-│   └── utils/               # Shared utilities
-├── db/
-│   ├── models/              # Database models
-│   └── migrations/          # Database migrations
-├── infra/
-│   └── docker/              # Docker configurations
-├── scripts/                 # Deployment and utility scripts
-├── tests/                   # Test suites
-├── docs/                    # Documentation
-├── static/                  # Static assets
-├── logs/                    # Application logs
-├── data/                    # Application data
-└── models/                  # AI/ML models
+├── apps/api/                 # FastAPI application and routes
+├── core/config/              # Runtime settings
+├── core/security/            # Security/authentication utilities
+├── core/database/            # Database integration
+├── core/utils/               # Shared/integration utilities
+├── db/                       # Models and migrations
+├── tests/                    # Test suite
+├── docs/                     # Documentation
+├── docker-compose.yml        # Container composition
+└── .env.example              # Non-secret configuration examples
 ```
 
-## Quick Start
+## Configuration
 
-### Prerequisites
-- Python 3.11+
-- Docker & Docker Compose
-- PostgreSQL 15+
-- Redis 7+
-- Node.js 18+ (for frontend)
+Start from `.env.example` and provide real deployment values through the deployment environment. In particular, do not commit production values for `SECRET_KEY`, database/Redis credentials, provider keys, cAPI/CAPPO credentials, or other secrets.
 
-### Installation
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/reprewindai-dev/lockerphycer.git
-   cd lockerphycer
-   ```
-
-2. **Set up environment**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your configuration
-   ```
-
-3. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Start the application**
-   ```bash
-   uvicorn apps.api.main:app --reload
-   ```
-
-5. **Production with Docker**
-   ```bash
-   docker compose up --build
-   ```
-
-### Environment Variables
-
-Key environment variables to configure:
-
-```env
-# Application
-APP_NAME="Locker Phycer"
-ENVIRONMENT=development
-DEBUG=true
-SECRET_KEY=your-secret-key-here
-
-# Database
-DATABASE_URL=postgresql://user:password@localhost:5432/lockerphycer
-
-# Redis
-REDIS_URL=redis://localhost:6379/0
-
-# Security
-AI_CITIZENSHIP_SECRET=your-ai-citizenship-secret
-ENCRYPTION_KEY=your-encryption-key
-
-# External Services
-OPENAI_API_KEY=your-openai-key
-HUGGINGFACE_API_KEY=your-huggingface-key
-STRIPE_SECRET_KEY=your-stripe-key
-```
-
-## API Documentation
-
-Once running, visit:
-- **API Docs**: http://localhost:8092/docs
-- **Admin Dashboard**: http://localhost:3000
-- **Monitoring**: http://localhost:3001
+Current configuration defaults include Locker Phycer `8092` and cAPI `3003`. CAPPO, Gnomledger, and BYOS integration URLs are deployment-configured and must not be promoted to `VERIFIED` merely because a URL is configured or reachable.
 
 ## Development
 
-### Running Tests
+Install repository dependencies using the dependency files committed for the current branch, then run the configured test and lint/security workflows before merge. A typical local application invocation is:
+
 ```bash
-# Unit tests
-pytest tests/
-
-# Integration tests
-pytest tests/integration/
-
-# Coverage
-pytest --cov=apps tests/
+uvicorn apps.api.main:app --reload --port 8092
 ```
 
-### Code Quality
-```bash
-# Linting
-flake8 apps/
-black apps/
+For container use, inspect the current Docker/Compose files rather than copying historical port or credential examples.
 
-# Type checking
-mypy apps/
-```
+## Security and compliance truth boundary
 
-## Monetization
+The repository must not claim that the following are implemented, deployed, certified, or operational unless there is current attributable evidence:
 
-Locker Phycer ships with workspace tier state and wallet ledger support:
+- OAuth2, SAML, or LDAP/Active Directory integrations;
+- HSM-backed key custody or key rotation;
+- AES-256-at-rest or TLS-version guarantees for the deployed environment;
+- predictive/behavioral threat analysis or automated incident response;
+- auto-scaling, failover, backup/disaster-recovery, or multi-cloud operation;
+- SOC 2 Type II, ISO 27001, HIPAA, GDPR, or other certification/compliance status;
+- production uptime, latency, security posture, active deployment state, or other measured runtime claims.
 
-- Community: free, 5 seats, 500 AI requests, 7-day logs.
-- Growth: $299/month, 25 seats, 5,000 AI requests, 30-day logs.
-- Sovereign: $799/month, 100 seats, 10,000 AI requests, 90-day logs.
-- Enterprise: custom air-gapped deployment, managed operations, and implementation fees.
+Code presence is not deployment evidence, a health response is not protocol identity, and dependency reachability is not authorization/security verification. Where evidence is missing, use `NOT_VERIFIED`, `UNAVAILABLE`, or `NOT_IMPLEMENTED` as appropriate.
 
-## Deployment
+## Commercial truth boundary
 
-### Docker Deployment
-```bash
-docker compose up --build
-```
+Pricing, plan limits, seat counts, quotas, and commercial availability are not defined by this repository unless an explicitly designated commercial source-of-truth is introduced. Do not hard-code realistic pricing or customer-plan claims into architecture/runtime documentation.
 
-### Kubernetes
-```bash
-# Apply Kubernetes manifests
-kubectl apply -f k8s/
-```
+## Verification before production claims
 
-## Monitoring
+A production claim requires the relevant evidence chain, including as applicable:
 
-The application includes comprehensive monitoring:
+1. exact deployed commit SHA;
+2. application listener on canonical port `8092`;
+3. expected Locker Phycer HTTP/protocol identity;
+4. Traefik route targeting the same listener;
+5. required cAPI/CAPPO/Gnomledger/BYOS integration handshakes;
+6. current test, dependency, and security workflow results.
 
-- **Prometheus**: Metrics collection
-- **Grafana**: Visualization and dashboards
-- **Loki**: Log aggregation
-- **AlertManager**: Alert management
-
-## Security
-
-### Authentication
-- JWT-based authentication
-- OAuth2 integration
-- SAML support
-- LDAP/Active Directory integration
-
-### Encryption
-- AES-256 encryption at rest
-- TLS 1.3 in transit
-- Key rotation support
-- Hardware security module (HSM) support
-
-### Compliance
-- GDPR compliance
-- SOC 2 Type II
-- ISO 27001
-- HIPAA (healthcare version)
-
-## Support
-
-- **Documentation**: [docs/](docs/)
-- **Issues**: [GitHub Issues](https://github.com/reprewindai-dev/lockerphycer/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/reprewindai-dev/lockerphycer/discussions)
+Until those agree, `verified_runtime_state` remains `NOT_VERIFIED`.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
----
-
-**Built with ❤️ by the Locker Phycer Team**
+See [LICENSE](LICENSE).
