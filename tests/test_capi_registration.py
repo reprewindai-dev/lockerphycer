@@ -41,3 +41,28 @@ def test_heartbeat_refreshes_an_existing_registration() -> None:
         assert transport.paths == ["/api/v1/registry/register", "/api/v1/registry/heartbeat"]
 
     asyncio.run(exercise())
+
+
+def test_heartbeat_404_re_registers_before_clean_shutdown() -> None:
+    os.environ.setdefault("SECRET_KEY", "test-secret-key-with-at-least-thirty-two-characters")
+    from core.utils.capi_registration import maintain_capi_registration
+
+    async def exercise() -> None:
+        settings = SimpleNamespace(
+            CAPI_BACKEND_URL="http://capi.test",
+            CAPI_API_KEY="registry-token",
+            CAPI_REGISTRY_TTL_MS=1,
+        )
+        transport = RecordingTransport([201, 404, 201])
+        stop = asyncio.Event()
+        task = asyncio.create_task(maintain_capi_registration(settings, stop, transport))
+        await transport.wait_for_calls(3)
+        stop.set()
+        await task
+        assert transport.paths == [
+            "/api/v1/registry/register",
+            "/api/v1/registry/heartbeat",
+            "/api/v1/registry/register",
+        ]
+
+    asyncio.run(exercise())
