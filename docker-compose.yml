@@ -5,7 +5,6 @@
 services:
   lockerphycer-api:
     build: .
-    container_name: lockerphycer-api
     restart: unless-stopped
     env_file: .env
     environment:
@@ -25,7 +24,6 @@ services:
 
   lockerphycer-postgres:
     image: postgres:16-alpine
-    container_name: lockerphycer-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: lockerphycer_production
@@ -45,7 +43,6 @@ services:
 
   lockerphycer-redis:
     image: redis:7-alpine
-    container_name: lockerphycer-redis
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
     volumes:
