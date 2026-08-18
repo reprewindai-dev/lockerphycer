@@ -319,35 +319,6 @@ def calculate_health_score(db_health: Dict[str, Any], ai_health: Dict[str, Any])
     return max(0, score)
 
 
-async def get_user_activity_stats(db: AsyncSession) -> Dict[str, Any]:
-    """Get user activity statistics"""
-    
-    # Active users in last hour
-    hour_ago = datetime.utcnow() - timedelta(hours=1)
-    active_hour_result = await db.execute(
-        select(func.count()).select_from(User)
-        .where(User.last_activity >= hour_ago)
-    )
-    active_last_hour = active_hour_result.scalar()
-    
-    # Active users in last 24 hours
-    day_ago = datetime.utcnow() - timedelta(days=1)
-    active_day_result = await db.execute(
-    
-    # Database health impact
-    if db_health["status"] != "healthy":
-        score -= 50
-    elif db_health.get("response_time", 0) > 1.0:
-        score -= 20
-    
-    # AI services health impact
-    if ai_health["status"] != "healthy":
-        score -= 30
-    elif ai_health.get("gpu_utilization", 0) > 90:
-        score -= 10
-    
-    return max(0, score)
-
 
 async def get_user_activity_stats(db: AsyncSession) -> Dict[str, Any]:
     """Get user activity statistics"""
