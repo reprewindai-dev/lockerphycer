@@ -1,9 +1,9 @@
 """
 AI Services Routes
 
-All AI analysis is delegated to Ollama at the canonical inference node
-(http://167.233.202.195:11434). There is no mock fallback — if Ollama is
-unreachable or returns an error, the request fails with HTTP 503.
+All AI analysis is delegated to a deployment-configured Ollama endpoint. There is
+no mock fallback — if Ollama is unconfigured, unreachable, or returns an error,
+the request fails closed with HTTP 503 without exposing provider topology.
 """
 
 import httpx
@@ -22,7 +22,7 @@ from apps.api.schemas.ai import AIRequestResponse, AIModelResponse, AIAnalysisRe
 
 router = APIRouter()
 
-OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://167.233.202.195:11434")
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "").rstrip("/")
 MODEL_UPLOAD_DIR = os.environ.get("MODEL_UPLOAD_DIR", "/app/models")
 
 
@@ -65,9 +65,8 @@ async def analyze_with_ai(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Analyze data using AI via Ollama inference node"""
+    """Analyze data using AI via the configured Ollama inference node"""
 
-    # Get model
     model = await db.get(AIModel, request.model_id)
     if not model or not model.is_active:
         raise HTTPException(
@@ -75,7 +74,6 @@ async def analyze_with_ai(
             detail="AI model not found or inactive"
         )
 
-    # Create AI request record
     ai_request = AIRequest(
         user_id=current_user.id,
         model_id=model.id,
@@ -89,10 +87,7 @@ async def analyze_with_ai(
 
     try:
         start_time = datetime.utcnow()
-
-        # Delegate to real Ollama inference — no mock fallback
         analysis_result = await process_ai_analysis(request, model)
-
         processing_time = (datetime.utcnow() - start_time).total_seconds()
 
         ai_request.output_data = analysis_result
@@ -113,14 +108,14 @@ async def analyze_with_ai(
             timestamp=datetime.utcnow()
         )
 
-    except Exception as e:
+    except Exception:
         ai_request.status = "failed"
-        ai_request.error_message = str(e)
+        ai_request.error_message = "AI_PROVIDER_UNAVAILABLE"
         await db.commit()
 
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"AI processing failed: {str(e)}"
+            detail="AI processing unavailable"
         )
 
 
@@ -186,7 +181,6 @@ async def upload_ai_model(
             detail="Not enough permissions to upload models"
         )
 
-    # 1. Enforce allowed model extensions
     allowed_extensions = {".bin", ".gguf", ".pt", ".pth", ".safetensors", ".onnx"}
     ext = os.path.splitext(file.filename)[1].lower() if file.filename else ""
     if ext not in allowed_extensions:
@@ -195,29 +189,25 @@ async def upload_ai_model(
             detail=f"Invalid model extension {ext}. Allowed: {', '.join(allowed_extensions)}"
         )
 
-    # 2. Generate server-side object ID to prevent path traversal
     import uuid
     server_filename = f"{uuid.uuid4().hex}{ext}"
-    
+
     os.makedirs(MODEL_UPLOAD_DIR, exist_ok=True)
-    
-    # 3. Resolve path and ensure it remains inside MODEL_UPLOAD_DIR
+
     base_dir = os.path.abspath(MODEL_UPLOAD_DIR)
     file_path = os.path.abspath(os.path.join(base_dir, server_filename))
-    
+
     if os.path.commonpath([base_dir, file_path]) != base_dir:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Path resolution failed security boundaries"
         )
 
-    # 4. Enforce byte limit (5MB) and write with restrictive permissions
     MAX_SIZE = 5 * 1024 * 1024
     total_size = 0
-    
+
     try:
         async with aiofiles.open(file_path, "wb") as f:
-            # Read in 1MB chunks to avoid memory exhaustion
             while chunk := await file.read(1024 * 1024):
                 total_size += len(chunk)
                 if total_size > MAX_SIZE:
@@ -227,14 +217,13 @@ async def upload_ai_model(
                         detail="Model file exceeds 5MB limit"
                     )
                 await f.write(chunk)
-        # 5. Restrictive permissions (owner read/write only)
         os.chmod(file_path, 0o600)
-    except OSError as exc:
+    except OSError:
         if os.path.exists(file_path):
             os.remove(file_path)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to persist model file: {exc}"
+            detail="Failed to persist model file"
         )
 
     model = AIModel(
@@ -242,14 +231,14 @@ async def upload_ai_model(
         model_type=model_type,
         version=version,
         config={"file_path": file_path},
-        is_active=False  # Needs to be activated manually
+        is_active=False
     )
 
     db.add(model)
     await db.commit()
     await db.refresh(model)
 
-    return {"message": "Model uploaded successfully", "model_id": model.id, "file_path": file_path}
+    return {"message": "Model uploaded successfully", "model_id": model.id}
 
 
 @router.post("/models/{model_id}/activate")
@@ -331,13 +320,10 @@ async def get_ai_stats(
 
 
 async def process_ai_analysis(request: AIAnalysisRequest, model: AIModel) -> Dict[str, Any]:
-    """
-    Delegate AI analysis to the Ollama inference node.
+    """Delegate AI analysis to the deployment-configured Ollama inference node."""
+    if not OLLAMA_BASE_URL:
+        raise RuntimeError("OLLAMA_NOT_CONFIGURED")
 
-    Builds a structured prompt from the request type and input data, sends it
-    to Ollama's /api/generate endpoint, and returns the parsed response.
-    Raises an exception (propagated as HTTP 503) if Ollama is unreachable.
-    """
     ollama_model = model.config.get("ollama_model", "llama3")
 
     system_prompt_map = {
@@ -374,9 +360,7 @@ async def process_ai_analysis(request: AIAnalysisRequest, model: AIModel) -> Dic
         resp = await client.post(f"{OLLAMA_BASE_URL}/api/generate", json=payload)
 
     if resp.status_code != 200:
-        raise RuntimeError(
-            f"Ollama inference node returned HTTP {resp.status_code}: {resp.text[:200]}"
-        )
+        raise RuntimeError(f"OLLAMA_HTTP_{resp.status_code}")
 
     ollama_response = resp.json()
     raw_text = ollama_response.get("response", "")
@@ -385,7 +369,6 @@ async def process_ai_analysis(request: AIAnalysisRequest, model: AIModel) -> Dic
     try:
         result = _json.loads(raw_text)
     except _json.JSONDecodeError:
-        # Return the raw text in a structured envelope so the caller always gets JSON
         result = {"result": raw_text, "confidence": 0.0, "model": ollama_model, "parse_error": True}
 
     return result
