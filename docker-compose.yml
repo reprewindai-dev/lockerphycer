@@ -18,6 +18,18 @@ services:
         condition: service_healthy
     expose:
       - "8092"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8092/health', timeout=5)"
+        ]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
     volumes:
       - lockerphycer_logs:/app/logs
       - lockerphycer_models:/app/models
