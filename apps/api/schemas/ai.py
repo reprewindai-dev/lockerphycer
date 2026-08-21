@@ -2,22 +2,29 @@
 AI Services Schemas
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from typing import Dict, Any, Optional
 from datetime import datetime
 
 
 class AIModelBase(BaseModel):
-    """Base AI model schema"""
+    """Base AI model schema used for internal/model configuration inputs."""
     name: str
     model_type: str
     version: str
     config: Optional[Dict[str, Any]] = None
 
 
-class AIModelResponse(AIModelBase):
-    """AI model response schema"""
+class AIModelResponse(BaseModel):
+    """Public AI model response schema.
+
+    Provider/runtime configuration is intentionally excluded because it may
+    contain server-side filesystem paths or deployment topology.
+    """
     id: str
+    name: str
+    model_type: str
+    version: str
     is_active: bool
     is_loaded: bool
     load_time: Optional[float] = None
@@ -25,7 +32,7 @@ class AIModelResponse(AIModelBase):
     created_at: datetime
     updated_at: Optional[datetime] = None
     last_trained: Optional[datetime] = None
-    
+
     class Config:
         from_attributes = True
 
@@ -68,7 +75,7 @@ class AIRequestResponse(BaseModel):
     error_message: Optional[str] = None
     created_at: datetime
     completed_at: Optional[datetime] = None
-    
+
     class Config:
         from_attributes = True
 
