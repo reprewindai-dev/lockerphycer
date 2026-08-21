@@ -13,6 +13,7 @@ import hashlib
 import time
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 import jwt
@@ -24,6 +25,10 @@ from .models import AuthorizedExecutionEnvelope
 
 class EffectBoundaryError(RuntimeError):
     """A requested external effect does not satisfy its authority boundary."""
+
+
+class CredentialRevocationError(EffectBoundaryError):
+    """A temporary provider credential could not be positively revoked."""
 
 
 class GitHubFileUpdateIntent(BaseModel):
@@ -60,7 +65,10 @@ def validate_effect_authority(
 ) -> None:
     """Fail closed unless the exact effect is what CAPPO authorized."""
 
-    envelope.assert_current()
+    try:
+        envelope.assert_current()
+    except ValueError as exc:
+        raise EffectBoundaryError(str(exc)) from exc
     if envelope.capability_id != intent.operation:
         raise EffectBoundaryError("effect operation is outside CAPPO capability authority")
     if intent.provider not in envelope.allowed_provider_set:
@@ -76,6 +84,7 @@ class GitHubAppConfig:
     private_key_pem: str
     api_base: str = "https://api.github.com"
     timeout_seconds: float = 15.0
+    revocation_attempts: int = 3
 
 
 class GitHubAppCredentialBroker:
@@ -118,13 +127,21 @@ class GitHubAppCredentialBroker:
         return token
 
     def revoke_token(self, token: str) -> bool:
-        response = self.client.delete(
-            f"{self.config.api_base}/installation/token",
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        # Only GitHub's documented 204 response counts as positively confirmed
-        # revocation. A 401/404 may mean many things and is not proof.
-        return response.status_code == 204
+        """Require GitHub's documented 204; retry transient failures briefly."""
+        attempts = max(1, min(int(self.config.revocation_attempts), 5))
+        for attempt in range(attempts):
+            try:
+                response = self.client.delete(
+                    f"{self.config.api_base}/installation/token",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+            except httpx.HTTPError:
+                response = None
+            if response is not None and response.status_code == 204:
+                return True
+            if attempt + 1 < attempts:
+                time.sleep(0.1 * (attempt + 1))
+        return False
 
 
 class GitHubEffectBroker:
@@ -133,20 +150,33 @@ class GitHubEffectBroker:
     def __init__(self, credentials: GitHubAppCredentialBroker) -> None:
         self.credentials = credentials
 
+    @staticmethod
+    def _content_path(intent: GitHubFileUpdateIntent) -> str:
+        owner = quote(intent.owner, safe="")
+        repo = quote(intent.repo, safe="")
+        # Preserve repository path separators while encoding query/fragment and
+        # other URL delimiters that are valid Git filename characters.
+        path = quote(intent.path, safe="/")
+        return f"/repos/{owner}/{repo}/contents/{path}"
+
     def execute(
         self,
         envelope: AuthorizedExecutionEnvelope,
         intent: GitHubFileUpdateIntent,
     ) -> dict[str, Any]:
         validate_effect_authority(envelope, intent)
+
+        # Reject malformed content before creating any upstream credential.
+        try:
+            base64.b64decode(intent.content_b64, validate=True)
+        except Exception as exc:
+            raise EffectBoundaryError("effect content_b64 is invalid") from exc
+
         token = self.credentials.mint_repository_token(intent.owner, intent.repo)
         result: dict[str, Any] | None = None
+        content_url = f"{self.credentials.config.api_base}{self._content_path(intent)}"
         try:
             headers = {"Authorization": f"Bearer {token}"}
-            content_url = (
-                f"{self.credentials.config.api_base}/repos/{intent.owner}/{intent.repo}"
-                f"/contents/{intent.path}"
-            )
             current = self.credentials.client.get(
                 content_url,
                 headers=headers,
@@ -158,12 +188,12 @@ class GitHubEffectBroker:
             if current_sha != intent.expected_blob_sha:
                 raise EffectBoundaryError("GitHub target state changed; mutation denied")
 
-            # Decode locally before the provider call so malformed content cannot
-            # consume an authorized mutation attempt.
+            # Authority and current state are revalidated at the final mutation
+            # boundary, after provider/network delay and immediately before PUT.
             try:
-                base64.b64decode(intent.content_b64, validate=True)
-            except Exception as exc:
-                raise EffectBoundaryError("effect content_b64 is invalid") from exc
+                envelope.assert_current()
+            except ValueError as exc:
+                raise EffectBoundaryError(str(exc)) from exc
 
             response = self.credentials.client.put(
                 content_url,
@@ -191,16 +221,18 @@ class GitHubEffectBroker:
                 "effect_digest": effect_digest(intent),
                 "mutation_succeeded": True,
             }
-        except Exception:
-            # The mutation may not have happened, but the credential must still
-            # be explicitly invalidated. Preserve the primary error either way.
-            self.credentials.revoke_token(token)
+        except Exception as primary:
+            # A failed consequence attempt still has a live temporary credential.
+            # If revocation cannot be positively confirmed, surface that security
+            # incident instead of silently discarding the failed revocation.
+            if not self.credentials.revoke_token(token):
+                raise CredentialRevocationError(
+                    "GitHub effect failed and JIT credential revocation was not confirmed"
+                ) from primary
             raise
 
-        # Once a real consequence has occurred we must preserve evidence even if
-        # credential revocation cannot be positively confirmed. The caller can
-        # treat credential_revoked=False as a terminal security incident while
-        # still recording the actual commit/result in PGL.
+        # Once a real consequence has occurred, preserve its evidence even when
+        # revocation is not positively confirmed; CAPPO/PGL must record both facts.
         result["credential_revoked"] = self.credentials.revoke_token(token)
         result["security_status"] = (
             "COMPLETE" if result["credential_revoked"] else "REVOCATION_NOT_CONFIRMED"
