@@ -64,7 +64,6 @@ def validate_effect_authority(
     intent: GitHubFileUpdateIntent,
 ) -> None:
     """Fail closed unless the exact effect is what CAPPO authorized."""
-
     try:
         envelope.assert_current()
     except ValueError as exc:
@@ -112,8 +111,6 @@ class GitHubAppCredentialBroker:
         )
 
     def mint_repository_token(self, owner: str, repo: str) -> str:
-        # GitHub installation-token creation accepts an explicit repository
-        # restriction plus a narrow permission map. This token never enters the cell.
         response = self.client.post(
             f"{self.config.api_base}/app/installations/{self.config.installation_id}/access_tokens",
             headers={"Authorization": f"Bearer {self._app_jwt()}"},
@@ -121,7 +118,11 @@ class GitHubAppCredentialBroker:
         )
         if response.status_code not in {200, 201}:
             raise EffectBoundaryError("GitHub JIT credential mint failed")
-        token = response.json().get("token")
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise EffectBoundaryError("GitHub JIT credential response was invalid") from exc
+        token = body.get("token") if isinstance(body, dict) else None
         if not isinstance(token, str) or not token:
             raise EffectBoundaryError("GitHub JIT credential response was invalid")
         return token
@@ -154,10 +155,16 @@ class GitHubEffectBroker:
     def _content_path(intent: GitHubFileUpdateIntent) -> str:
         owner = quote(intent.owner, safe="")
         repo = quote(intent.repo, safe="")
-        # Preserve repository path separators while encoding query/fragment and
-        # other URL delimiters that are valid Git filename characters.
         path = quote(intent.path, safe="/")
         return f"/repos/{owner}/{repo}/contents/{path}"
+
+    @staticmethod
+    def _safe_json_object(response: httpx.Response) -> dict[str, Any] | None:
+        try:
+            body = response.json()
+        except ValueError:
+            return None
+        return body if isinstance(body, dict) else None
 
     def execute(
         self,
@@ -166,15 +173,16 @@ class GitHubEffectBroker:
     ) -> dict[str, Any]:
         validate_effect_authority(envelope, intent)
 
-        # Reject malformed content before creating any upstream credential.
         try:
             base64.b64decode(intent.content_b64, validate=True)
         except Exception as exc:
             raise EffectBoundaryError("effect content_b64 is invalid") from exc
 
         token = self.credentials.mint_repository_token(intent.owner, intent.repo)
-        result: dict[str, Any] | None = None
         content_url = f"{self.credentials.config.api_base}{self._content_path(intent)}"
+        mutation_accepted = False
+        result: dict[str, Any] | None = None
+
         try:
             headers = {"Authorization": f"Bearer {token}"}
             current = self.credentials.client.get(
@@ -184,12 +192,12 @@ class GitHubEffectBroker:
             )
             if current.status_code != 200:
                 raise EffectBoundaryError("GitHub target-state lookup failed")
-            current_sha = current.json().get("sha")
+            current_body = self._safe_json_object(current)
+            current_sha = current_body.get("sha") if current_body else None
             if current_sha != intent.expected_blob_sha:
                 raise EffectBoundaryError("GitHub target state changed; mutation denied")
 
-            # Authority and current state are revalidated at the final mutation
-            # boundary, after provider/network delay and immediately before PUT.
+            # Final authority check immediately before the target's conditional write.
             try:
                 envelope.assert_current()
             except ValueError as exc:
@@ -208,7 +216,41 @@ class GitHubEffectBroker:
             if response.status_code not in {200, 201}:
                 raise EffectBoundaryError("GitHub mutation failed")
 
-            body = response.json()
+            # From this point onward the consequence is accepted. Evidence failure
+            # must never be misreported as mutation failure or invite a replay.
+            mutation_accepted = True
+            body = self._safe_json_object(response)
+            after_blob_sha = None
+            commit_sha = None
+            response_body_verified = body is not None
+            if body is not None:
+                content = body.get("content")
+                commit = body.get("commit")
+                if isinstance(content, dict):
+                    after_blob_sha = content.get("sha")
+                if isinstance(commit, dict):
+                    commit_sha = commit.get("sha")
+
+            # If GitHub accepted the write but returned unusable response evidence,
+            # re-read authoritative state. Failure here marks evidence incomplete;
+            # it does not erase the already-accepted consequence.
+            if not after_blob_sha:
+                try:
+                    observed_after = self.credentials.client.get(
+                        content_url,
+                        headers=headers,
+                        params={"ref": intent.branch},
+                    )
+                    if observed_after.status_code == 200:
+                        observed_body = self._safe_json_object(observed_after)
+                        if observed_body is not None:
+                            candidate = observed_body.get("sha")
+                            if isinstance(candidate, str) and candidate:
+                                after_blob_sha = candidate
+                except httpx.HTTPError:
+                    pass
+
+            target_result_confirmed = bool(after_blob_sha)
             result = {
                 "provider": "github",
                 "operation": intent.operation,
@@ -216,25 +258,48 @@ class GitHubEffectBroker:
                 "branch": intent.branch,
                 "path": intent.path,
                 "before_sha": intent.expected_blob_sha,
-                "after_blob_sha": (body.get("content") or {}).get("sha"),
-                "commit_sha": (body.get("commit") or {}).get("sha"),
+                "after_blob_sha": after_blob_sha,
+                "commit_sha": commit_sha,
                 "effect_digest": effect_digest(intent),
                 "mutation_succeeded": True,
+                "mutation_http_status": response.status_code,
+                "mutation_response_body_verified": response_body_verified,
+                "target_result_confirmed": target_result_confirmed,
+                "mutation_evidence_status": (
+                    "COMPLETE" if target_result_confirmed else "ACCEPTED_EVIDENCE_INCOMPLETE"
+                ),
             }
         except Exception as primary:
-            # A failed consequence attempt still has a live temporary credential.
-            # If revocation cannot be positively confirmed, surface that security
-            # incident instead of silently discarding the failed revocation.
-            if not self.credentials.revoke_token(token):
-                raise CredentialRevocationError(
-                    "GitHub effect failed and JIT credential revocation was not confirmed"
-                ) from primary
-            raise
+            if mutation_accepted:
+                # Defensive invariant: once accepted, never recast downstream evidence
+                # processing failure as a failed consequence.
+                result = result or {
+                    "provider": "github",
+                    "operation": intent.operation,
+                    "repository": f"{intent.owner}/{intent.repo}",
+                    "branch": intent.branch,
+                    "path": intent.path,
+                    "before_sha": intent.expected_blob_sha,
+                    "after_blob_sha": None,
+                    "commit_sha": None,
+                    "effect_digest": effect_digest(intent),
+                    "mutation_succeeded": True,
+                    "target_result_confirmed": False,
+                    "mutation_evidence_status": "ACCEPTED_EVIDENCE_INCOMPLETE",
+                }
+            else:
+                if not self.credentials.revoke_token(token):
+                    raise CredentialRevocationError(
+                        "GitHub effect failed and JIT credential revocation was not confirmed"
+                    ) from primary
+                raise
 
-        # Once a real consequence has occurred, preserve its evidence even when
-        # revocation is not positively confirmed; CAPPO/PGL must record both facts.
+        assert result is not None
         result["credential_revoked"] = self.credentials.revoke_token(token)
-        result["security_status"] = (
-            "COMPLETE" if result["credential_revoked"] else "REVOCATION_NOT_CONFIRMED"
-        )
+        if not result["credential_revoked"]:
+            result["security_status"] = "REVOCATION_NOT_CONFIRMED"
+        elif result.get("target_result_confirmed") is not True:
+            result["security_status"] = "ACCEPTED_EVIDENCE_INCOMPLETE"
+        else:
+            result["security_status"] = "COMPLETE"
         return result
