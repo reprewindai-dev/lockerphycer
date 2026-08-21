@@ -121,8 +121,8 @@ async def analyze_with_ai(
     except Exception as exc:
         failure_code = exc.code if isinstance(exc, AIProviderError) else exc.__class__.__name__
         # Keep caller/persisted errors topology-free while retaining an operator-useful
-        # failure class. Deliberately do not log str(exc) or exc_info because provider
-        # exceptions may contain deployment URLs or response bodies.
+        # failure class. Do not emit raw provider exception text or tracebacks because
+        # provider failures may contain deployment URLs or response bodies.
         logger.error(
             "AI provider analysis failed",
             extra={
@@ -241,7 +241,15 @@ async def upload_ai_model(
                     )
                 await f.write(chunk)
         os.chmod(file_path, 0o600)
-    except OSError:
+    except OSError as exc:
+        logger.error(
+            "Model upload persistence failed",
+            extra={
+                "failure_code": "MODEL_UPLOAD_IO_ERROR",
+                "errno": getattr(exc, "errno", None),
+                "model_type": model_type,
+            },
+        )
         if os.path.exists(file_path):
             os.remove(file_path)
         raise HTTPException(
