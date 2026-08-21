@@ -51,7 +51,11 @@ def _load_authority_keys() -> dict[str, str]:
 def _build_runtime() -> OCICellRuntime:
     verifier = Ed25519AuthorityVerifier(_load_authority_keys())
     configured = os.environ.get("LOCKERPHYCER_OCI_RUNTIME", "").strip() or None
-    return OCICellRuntime(verifier, runtime_binary=configured)
+    return OCICellRuntime(
+        verifier,
+        runtime_binary=configured,
+        expected_runtime_instance=_required("LOCKERPHYCER_CELL_HOST_INSTANCE"),
+    )
 
 
 def _build_github_broker() -> GitHubEffectBroker:
