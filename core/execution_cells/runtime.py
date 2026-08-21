@@ -15,7 +15,6 @@ import uuid
 from datetime import datetime, timezone
 from typing import Protocol
 
-from .authority import Ed25519AuthorityVerifier
 from .models import CellRequest, CellResult
 
 
@@ -50,10 +49,12 @@ class OCICellRuntime:
         verifier: AuthorityVerifier,
         runtime_binary: str | None = None,
         max_output_bytes: int = 1_048_576,
+        expected_runtime_instance: str | None = None,
     ) -> None:
         self.verifier = verifier
         self.runtime_binary = runtime_binary or self._detect_runtime()
         self.max_output_bytes = max_output_bytes
+        self.expected_runtime_instance = (expected_runtime_instance or "").strip() or None
         if self.max_output_bytes < 4096:
             raise ValueError("max_output_bytes is too small")
 
@@ -76,8 +77,11 @@ class OCICellRuntime:
         if "@sha256:" not in request.image:
             raise CellRuntimeError("cell image must be pinned by immutable sha256 digest")
 
-        if envelope.runtime_kind not in {"lockerphycer-cell", "governed-cell"}:
+        if envelope.runtime_kind != "lockerphycer-cell":
             raise CellRuntimeError("authority runtime_kind does not authorize a Lockerphycer cell")
+
+        if self.expected_runtime_instance and envelope.runtime_instance != self.expected_runtime_instance:
+            raise CellRuntimeError("authority is bound to a different Lockerphycer cell host")
 
         if not envelope.allowed_provider_set:
             raise CellRuntimeError("authority has no allowed provider set")
