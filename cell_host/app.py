@@ -22,6 +22,7 @@ from core.execution_cells.effects import (
     GitHubFileUpdateIntent,
 )
 from core.execution_cells.models import CellRequest, CellResult, SignedAuthority
+from core.execution_cells.replay import ReplayDetected, SQLiteReplayStore
 from core.execution_cells.runtime import CellRuntimeError, OCICellRuntime
 
 
@@ -76,6 +77,9 @@ _CELL_HOST_KEY = _required("LOCKERPHYCER_CELL_HOST_API_KEY")
 if len(_CELL_HOST_KEY) < 32:
     raise CellHostConfigurationError("LOCKERPHYCER_CELL_HOST_API_KEY must be at least 32 characters")
 _RUNTIME = _build_runtime()
+_REPLAY = SQLiteReplayStore(
+    os.environ.get("LOCKERPHYCER_REPLAY_DB", "/var/lib/lockerphycer/cell-host-replay.sqlite3")
+)
 
 
 def _authorize_host_call(value: str | None) -> None:
@@ -96,9 +100,14 @@ def run_cell(
 ) -> CellResult:
     _authorize_host_call(x_cell_host_key)
     try:
+        # Verify first, then atomically consume this stage before any spawn.
+        _RUNTIME.verifier.verify(request.authority)
+        _REPLAY.consume(request.authority, "cell_run")
         return _RUNTIME.run(request)
     except AuthorityVerificationError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ReplayDetected as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except CellRuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -116,13 +125,18 @@ def github_file_update(
 ) -> dict:
     _authorize_host_call(x_cell_host_key)
 
-    # Verify CAPPO signature and expiry independently from the caller.
-    _RUNTIME.verifier.verify(request.authority)
-    intent = GitHubFileUpdateIntent(**request.model_dump(exclude={"authority"}))
-    broker = _build_github_broker()
     try:
-        return broker.execute(request.authority.envelope, intent)
-    except (AuthorityVerificationError, EffectBoundaryError) as exc:
+        # Verify CAPPO signature/expiry and consume the effect stage before any
+        # provider credential is minted or target state is read.
+        _RUNTIME.verifier.verify(request.authority)
+        _REPLAY.consume(request.authority, "effect")
+        intent = GitHubFileUpdateIntent(**request.model_dump(exclude={"authority"}))
+        broker = _build_github_broker()
+        try:
+            return broker.execute(request.authority.envelope, intent)
+        finally:
+            broker.credentials.close()
+    except AuthorityVerificationError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except (ReplayDetected, EffectBoundaryError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    finally:
-        broker.credentials.close()
