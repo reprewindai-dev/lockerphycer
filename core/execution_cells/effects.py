@@ -1,6 +1,6 @@
 """Brokered consequence adapters for governed execution cells.
 
-The cell never receives provider credentials or general network access.  It may
+The cell never receives provider credentials or general network access. It may
 propose a structured effect intent, but the trusted host broker performs the
 real external mutation only when the intent is exactly bound to CAPPO's signed
 semantic-intent digest and current target state.
@@ -16,7 +16,7 @@ from typing import Any
 
 import httpx
 import jwt
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .authority import canonical_json_bytes
 from .models import AuthorizedExecutionEnvelope
@@ -40,6 +40,13 @@ class GitHubFileUpdateIntent(BaseModel):
     expected_blob_sha: str = Field(min_length=40, max_length=64)
     content_b64: str = Field(min_length=1)
     commit_message: str = Field(min_length=1, max_length=500)
+
+    @field_validator("path")
+    @classmethod
+    def reject_parent_traversal(cls, value: str) -> str:
+        if value.startswith("/") or ".." in value.split("/"):
+            raise ValueError("GitHub path must be repository-relative without parent traversal")
+        return value
 
 
 def effect_digest(intent: GitHubFileUpdateIntent) -> str:
@@ -97,7 +104,7 @@ class GitHubAppCredentialBroker:
 
     def mint_repository_token(self, owner: str, repo: str) -> str:
         # GitHub installation-token creation accepts an explicit repository
-        # restriction plus a narrow permission map.  This token never enters the cell.
+        # restriction plus a narrow permission map. This token never enters the cell.
         response = self.client.post(
             f"{self.config.api_base}/app/installations/{self.config.installation_id}/access_tokens",
             headers={"Authorization": f"Bearer {self._app_jwt()}"},
@@ -110,15 +117,14 @@ class GitHubAppCredentialBroker:
             raise EffectBoundaryError("GitHub JIT credential response was invalid")
         return token
 
-    def revoke_token(self, token: str) -> None:
+    def revoke_token(self, token: str) -> bool:
         response = self.client.delete(
             f"{self.config.api_base}/installation/token",
             headers={"Authorization": f"Bearer {token}"},
         )
-        if response.status_code not in {204, 401, 404}:
-            # A failed explicit revocation is surfaced; callers must not claim
-            # immediate credential teardown if GitHub did not confirm it.
-            raise EffectBoundaryError("GitHub JIT credential revocation failed")
+        # Only GitHub's documented 204 response counts as positively confirmed
+        # revocation. A 401/404 may mean many things and is not proof.
+        return response.status_code == 204
 
 
 class GitHubEffectBroker:
@@ -134,8 +140,7 @@ class GitHubEffectBroker:
     ) -> dict[str, Any]:
         validate_effect_authority(envelope, intent)
         token = self.credentials.mint_repository_token(intent.owner, intent.repo)
-        mutation_succeeded = False
-        revoke_error: Exception | None = None
+        result: dict[str, Any] | None = None
         try:
             headers = {"Authorization": f"Bearer {token}"}
             content_url = (
@@ -174,8 +179,7 @@ class GitHubEffectBroker:
                 raise EffectBoundaryError("GitHub mutation failed")
 
             body = response.json()
-            mutation_succeeded = True
-            return {
+            result = {
                 "provider": "github",
                 "operation": intent.operation,
                 "repository": f"{intent.owner}/{intent.repo}",
@@ -187,10 +191,18 @@ class GitHubEffectBroker:
                 "effect_digest": effect_digest(intent),
                 "mutation_succeeded": True,
             }
-        finally:
-            try:
-                self.credentials.revoke_token(token)
-            except Exception as exc:  # preserve the primary mutation exception
-                revoke_error = exc
-            if revoke_error is not None and mutation_succeeded:
-                raise revoke_error
+        except Exception:
+            # The mutation may not have happened, but the credential must still
+            # be explicitly invalidated. Preserve the primary error either way.
+            self.credentials.revoke_token(token)
+            raise
+
+        # Once a real consequence has occurred we must preserve evidence even if
+        # credential revocation cannot be positively confirmed. The caller can
+        # treat credential_revoked=False as a terminal security incident while
+        # still recording the actual commit/result in PGL.
+        result["credential_revoked"] = self.credentials.revoke_token(token)
+        result["security_status"] = (
+            "COMPLETE" if result["credential_revoked"] else "REVOCATION_NOT_CONFIRMED"
+        )
+        return result
