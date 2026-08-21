@@ -7,7 +7,7 @@ Locker Phycer is Veklom's **secret/key security domain**. This repository contai
 
 ## Current responsibility
 
-Locker Phycer owns **secret/key security and execution-security controls that are actually implemented here**. Local authentication utilities may verify callers for Lockerphycer APIs, but **Veklom ID remains the canonical identity-evidence domain**.
+Locker Phycer owns **secret/key security and execution-security controls that are actually implemented on the current branch**. Local authentication utilities may verify callers for Lockerphycer APIs, but **Veklom ID remains the canonical identity-evidence domain**.
 
 Lockerphycer does **not** become the source of truth for responsibilities owned elsewhere:
 
@@ -18,7 +18,7 @@ Lockerphycer does **not** become the source of truth for responsibilities owned 
 - **BYOS** — execution substrate where still applicable;
 - **x402 / payment rails** — settlement, never execution authority.
 
-The governed execution-cell work in this repository extends Lockerphycer's security boundary; it does not move policy or authority ownership out of CAPPO.
+Reviewed feature branches may extend Lockerphycer's execution-security boundary. Until such work lands on the default branch, this README does not present those feature-branch paths as current source.
 
 ## Runtime contract
 
@@ -45,24 +45,21 @@ That local URL is an example only; it does not establish production health or ro
 
 ## Source layout
 
+The following paths exist on this branch:
+
 ```text
 lockerphycer/
 ├── apps/api/                 # FastAPI application and routes
 ├── core/config/              # Runtime settings
 ├── core/security/            # Security/authentication utilities
-├── core/execution_cells/     # Governed execution-cell security primitives
 ├── core/database/            # Database integration
 ├── core/utils/               # Shared/integration utilities
-├── cell_host/                # Narrow host-side governed-cell service
-├── executor_images/          # Disposable governed workload images
 ├── db/                       # Models and migrations
 ├── tests/                    # Test suite
 ├── docs/                     # Documentation
 ├── docker-compose.yml        # Container composition
 └── .env.example              # Non-secret configuration examples
 ```
-
-Some paths above exist only after their corresponding reviewed feature work lands. Do not interpret a target path as production deployment evidence.
 
 ## Configuration
 
