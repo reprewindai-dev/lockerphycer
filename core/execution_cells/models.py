@@ -29,7 +29,12 @@ class CellResourceLimits(BaseModel):
 
 
 class AuthorizedExecutionEnvelope(BaseModel):
-    """Immutable CAPPO-authorized semantic transaction."""
+    """Immutable CAPPO-authorized semantic transaction.
+
+    Runtime artifact fields remain optional for backwards parsing of historical
+    envelopes, but every current Lockerphycer runtime fails closed when the
+    required signed artifact measurement for its isolation class is absent.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -50,6 +55,9 @@ class AuthorizedExecutionEnvelope(BaseModel):
     runtime_kind: str = Field(min_length=1)
     runtime_instance: str = Field(min_length=1)
     required_isolation: IsolationClass = "os-enforced"
+    runtime_image_digest: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+    runtime_kernel_digest: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+    network_policy_digest: str | None = Field(default=None, min_length=1)
     policy_digest: str = Field(min_length=1)
     allowed_provider_set: list[str] = Field(min_length=1)
     budget_ceiling: int = Field(ge=0)
