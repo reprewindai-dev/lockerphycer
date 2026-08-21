@@ -1,36 +1,41 @@
 # Locker Phycer
 
-Locker Phycer is a Veklom security, key, and identity service. This repository contains a FastAPI application, security/authentication utilities, persistence integrations, health/protocol surfaces, and integration points for other Veklom services.
+Locker Phycer is Veklom's **secret/key security domain**. This repository contains the FastAPI application, authentication/security utilities, persistence integrations, health/protocol surfaces, and integration points used to enforce that security boundary.
 
 > [!IMPORTANT]
-> Repository source describes intended behavior; it is not proof of a live deployment. Runtime state remains `NOT_VERIFIED` until the deployed commit SHA, HTTP/protocol identity, container listener, and Traefik routing agree.
+> Repository source describes intended behavior; it is not proof of a live deployment. Runtime evidence remains `UNVERIFIED` until the deployed commit SHA, HTTP/protocol identity, container listener, Traefik routing, and required integration evidence agree.
 
 ## Current responsibility
 
-### Observed current responsibility
+Locker Phycer owns **secret/key security and execution-security controls that are actually implemented here**. Local authentication utilities may verify callers for Lockerphycer APIs, but **Veklom ID remains the canonical identity-evidence domain**.
 
-Locker Phycer currently provides the Veklom **governed security/key/identity surface**. Source includes authentication/security utilities, API routes, database/Redis configuration, protocol and dependency-health routes, and configuration for cAPI/CAPPO/Gnomledger/BYOS integration.
+Lockerphycer does **not** become the source of truth for responsibilities owned elsewhere:
 
-This repository does **not** become the source of truth for responsibilities owned elsewhere:
+- **Veklom ID** — identity evidence;
+- **cAPI / Covenant** — governed connection and capability discovery;
+- **CAPPO** — fail-closed consequence authorization;
+- **GnomLedger / PGL** — durable evidence, provenance, and lineage;
+- **BYOS** — execution substrate where still applicable;
+- **x402 / payment rails** — settlement, never execution authority.
 
-- **cAPI** — canonical Interlink / cross-service connection layer;
-- **CAPPO** — governance and execution authorization;
-- **Gnomledger** — durable evidence and provenance;
-- **BYOS** — tenant/workspace execution substrate.
-
-### Target responsibility
-
-Future security capabilities may expand, but target architecture must not be documented as implemented or verified until source, tests, deployment configuration, and runtime evidence support the claim.
+The governed execution-cell work in this repository extends Lockerphycer's security boundary; it does not move policy or authority ownership out of CAPPO.
 
 ## Runtime contract
 
-- canonical Locker Phycer application port: **8092**;
-- canonical cAPI service port: **3003**;
-- ports **3000** and **8000** are forbidden as Locker Phycer production/root application listeners or examples;
+- reported Lockerphycer host-facing application port: **8092**;
+- internal container port **8000** is valid behind Traefik when deployment configuration maps it correctly;
+- cAPI commonly reports **3003**, but deployment truth comes from the current runtime, not this README;
+- host port `8000` must not be claimed for Lockerphycer where it conflicts with Coolify/runtime ownership;
 - deployment/runtime configuration is supplied by the deployment environment;
 - secrets and internal credentials must not be committed.
 
-Local API documentation, when the application is running on the canonical development/default port, is available at:
+API documentation is conditional on `DEBUG=true`. For local development, for example:
+
+```bash
+DEBUG=true uvicorn apps.api.main:app --reload --port 8092
+```
+
+then visit:
 
 ```text
 http://localhost:8092/docs
@@ -45,8 +50,11 @@ lockerphycer/
 ├── apps/api/                 # FastAPI application and routes
 ├── core/config/              # Runtime settings
 ├── core/security/            # Security/authentication utilities
+├── core/execution_cells/     # Governed execution-cell security primitives
 ├── core/database/            # Database integration
 ├── core/utils/               # Shared/integration utilities
+├── cell_host/                # Narrow host-side governed-cell service
+├── executor_images/          # Disposable governed workload images
 ├── db/                       # Models and migrations
 ├── tests/                    # Test suite
 ├── docs/                     # Documentation
@@ -54,52 +62,57 @@ lockerphycer/
 └── .env.example              # Non-secret configuration examples
 ```
 
+Some paths above exist only after their corresponding reviewed feature work lands. Do not interpret a target path as production deployment evidence.
+
 ## Configuration
 
-Start from `.env.example` and provide real deployment values through the deployment environment. In particular, do not commit production values for `SECRET_KEY`, database/Redis credentials, provider keys, cAPI/CAPPO credentials, or other secrets.
+Start from `.env.example` and provide real deployment values through the deployment environment. Do not commit production values for `SECRET_KEY`, database/Redis credentials, provider keys, cAPI/CAPPO credentials, signing material, GitHub App private keys, or other secrets.
 
-Current configuration defaults include Locker Phycer `8092` and cAPI `3003`. CAPPO, Gnomledger, and BYOS integration URLs are deployment-configured and must not be promoted to `VERIFIED` merely because a URL is configured or reachable.
+Configured URLs and ports are `CONFIGURED` evidence only. They are not `VERIFIED_LIVE` merely because they exist in source or environment configuration.
 
 ## Development
 
-Install repository dependencies using the dependency files committed for the current branch, then run the configured test and lint/security workflows before merge. A typical local application invocation is:
+Install repository dependencies from the committed dependency files. The checked-in `ci` workflow currently performs Python dependency installation, `compileall`, and `pytest` when GitHub Actions successfully provisions a runner. Run equivalent checks locally when CI infrastructure does not execute.
 
 ```bash
-uvicorn apps.api.main:app --reload --port 8092
+python -m compileall apps core db tests
+pytest -q
 ```
 
 For container use, inspect the current Docker/Compose files rather than copying historical port or credential examples.
 
 ## Security and compliance truth boundary
 
-The repository must not claim that the following are implemented, deployed, certified, or operational unless there is current attributable evidence:
+The repository must not claim that the following are implemented, deployed, certified, or operational unless current attributable evidence proves the exact claim:
 
-- OAuth2, SAML, or LDAP/Active Directory integrations;
 - HSM-backed key custody or key rotation;
+- SGX/TDX, TEE, or hardware-enclave guarantees;
+- "secrets never enter software memory";
 - AES-256-at-rest or TLS-version guarantees for the deployed environment;
 - predictive/behavioral threat analysis or automated incident response;
 - auto-scaling, failover, backup/disaster-recovery, or multi-cloud operation;
 - SOC 2 Type II, ISO 27001, HIPAA, GDPR, or other certification/compliance status;
 - production uptime, latency, security posture, active deployment state, or other measured runtime claims.
 
-Code presence is not deployment evidence, a health response is not protocol identity, and dependency reachability is not authorization/security verification. Where evidence is missing, use `NOT_VERIFIED`, `UNAVAILABLE`, or `NOT_IMPLEMENTED` as appropriate.
+Code presence is not deployment evidence. A health response is not protocol identity. Dependency reachability is not authorization/security verification. Use the canonical evidence vocabulary from `00_VEKLOM_BIBLE.md`: `VERIFIED_LIVE`, `VERIFIED_REPO`, `CONFIGURED`, `LAST_KNOWN`, `TARGET`, `UNVERIFIED`, `DEMO`, or `ARCHIVED`.
 
 ## Commercial truth boundary
 
-Pricing, plan limits, seat counts, quotas, and commercial availability are not defined by this repository unless an explicitly designated commercial source-of-truth is introduced. Do not hard-code realistic pricing or customer-plan claims into architecture/runtime documentation.
+Pricing, plan limits, seat counts, quotas, and commercial availability are not defined by this repository unless an explicitly designated commercial source of truth is introduced. Do not hard-code realistic pricing or customer-plan claims into architecture/runtime documentation.
 
 ## Verification before production claims
 
 A production claim requires the relevant evidence chain, including as applicable:
 
 1. exact deployed commit SHA;
-2. application listener on canonical port `8092`;
-3. expected Locker Phycer HTTP/protocol identity;
+2. actual container/process listener;
+3. expected Lockerphycer HTTP/protocol identity;
 4. Traefik route targeting the same listener;
-5. required cAPI/CAPPO/Gnomledger/BYOS integration handshakes;
-6. current test, dependency, and security workflow results.
+5. required cAPI/CAPPO/GnomLedger integrations for the claimed path;
+6. current executable source-test results;
+7. additional security/dependency/runtime evidence only when those checks actually exist and have executed.
 
-Until those agree, `verified_runtime_state` remains `NOT_VERIFIED`.
+Until the evidence for a claimed property exists, that property remains `UNVERIFIED`.
 
 ## License
 
