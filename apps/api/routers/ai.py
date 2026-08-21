@@ -6,6 +6,7 @@ no mock fallback — if Ollama is unconfigured, unreachable, or returns an error
 the request fails closed with HTTP 503 without exposing provider topology.
 """
 
+import logging
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,9 +22,18 @@ from core.security.auth import get_current_user
 from apps.api.schemas.ai import AIRequestResponse, AIModelResponse, AIAnalysisRequest, AIAnalysisResponse
 
 router = APIRouter()
+logger = logging.getLogger("lockerphycer.ai")
 
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "").rstrip("/")
 MODEL_UPLOAD_DIR = os.environ.get("MODEL_UPLOAD_DIR", "/app/models")
+
+
+class AIProviderError(RuntimeError):
+    """Sanitized provider failure that is safe to classify in internal logs."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
 
 
 @router.get("/models", response_model=List[AIModelResponse])
@@ -108,7 +118,20 @@ async def analyze_with_ai(
             timestamp=datetime.utcnow()
         )
 
-    except Exception:
+    except Exception as exc:
+        failure_code = exc.code if isinstance(exc, AIProviderError) else exc.__class__.__name__
+        # Keep caller/persisted errors topology-free while retaining an operator-useful
+        # failure class. Deliberately do not log str(exc) or exc_info because provider
+        # exceptions may contain deployment URLs or response bodies.
+        logger.error(
+            "AI provider analysis failed",
+            extra={
+                "provider": "ollama",
+                "failure_code": failure_code,
+                "model_id": str(model.id),
+                "request_type": request.request_type,
+            },
+        )
         ai_request.status = "failed"
         ai_request.error_message = "AI_PROVIDER_UNAVAILABLE"
         await db.commit()
@@ -322,7 +345,7 @@ async def get_ai_stats(
 async def process_ai_analysis(request: AIAnalysisRequest, model: AIModel) -> Dict[str, Any]:
     """Delegate AI analysis to the deployment-configured Ollama inference node."""
     if not OLLAMA_BASE_URL:
-        raise RuntimeError("OLLAMA_NOT_CONFIGURED")
+        raise AIProviderError("OLLAMA_NOT_CONFIGURED")
 
     ollama_model = model.config.get("ollama_model", "llama3")
 
@@ -356,13 +379,21 @@ async def process_ai_analysis(request: AIAnalysisRequest, model: AIModel) -> Dic
         "format": "json",
     }
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        resp = await client.post(f"{OLLAMA_BASE_URL}/api/generate", json=payload)
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(f"{OLLAMA_BASE_URL}/api/generate", json=payload)
+    except httpx.TimeoutException as exc:
+        raise AIProviderError("OLLAMA_TIMEOUT") from exc
+    except httpx.HTTPError as exc:
+        raise AIProviderError("OLLAMA_TRANSPORT_ERROR") from exc
 
     if resp.status_code != 200:
-        raise RuntimeError(f"OLLAMA_HTTP_{resp.status_code}")
+        raise AIProviderError(f"OLLAMA_HTTP_{resp.status_code}")
 
-    ollama_response = resp.json()
+    try:
+        ollama_response = resp.json()
+    except ValueError as exc:
+        raise AIProviderError("OLLAMA_INVALID_RESPONSE") from exc
     raw_text = ollama_response.get("response", "")
 
     import json as _json
