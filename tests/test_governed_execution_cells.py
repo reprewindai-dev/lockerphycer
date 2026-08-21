@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+import subprocess
+import sys
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -149,3 +151,48 @@ def test_mutable_image_tag_is_rejected():
 
     with pytest.raises(CellRuntimeError, match="pinned by immutable sha256 digest"):
         runtime._validate_request(request)
+
+
+def test_host_output_is_bounded_while_untrusted_process_runs():
+    authority, verifier = _signed_authority()
+    # /bin/true safely absorbs the cleanup command used after the short-lived
+    # local test process has already exited.
+    runtime = OCICellRuntime(verifier, runtime_binary="/bin/true", max_output_bytes=4096)
+    process = subprocess.Popen(
+        [sys.executable, "-c", "import sys; sys.stdout.write('x' * 8192)"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    stdout, stderr, timed_out, exceeded = runtime._collect_bounded(
+        process,
+        payload=b"{}",
+        timeout_seconds=5,
+        cell_id="test-cell",
+    )
+    assert exceeded is True
+    assert timed_out is False
+    assert len(stdout) + len(stderr) <= 4096
+
+
+def test_podman_teardown_requires_documented_absence_status(monkeypatch):
+    authority, verifier = _signed_authority()
+    runtime = OCICellRuntime(verifier, runtime_binary="/usr/bin/podman")
+
+    def absent(*args, **kwargs):
+        return subprocess.CompletedProcess(args[0], 1, stdout=b"", stderr=b"")
+
+    monkeypatch.setattr(subprocess, "run", absent)
+    assert runtime._teardown_confirmed("cell") is True
+
+
+def test_teardown_runtime_error_is_not_misreported_as_absence(monkeypatch):
+    authority, verifier = _signed_authority()
+    runtime = OCICellRuntime(verifier, runtime_binary="/usr/bin/podman")
+
+    def broken(*args, **kwargs):
+        return subprocess.CompletedProcess(args[0], 125, stdout=b"", stderr=b"permission denied")
+
+    monkeypatch.setattr(subprocess, "run", broken)
+    with pytest.raises(CellRuntimeError, match="could not verify"):
+        runtime._teardown_confirmed("cell")
