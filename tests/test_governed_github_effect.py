@@ -9,6 +9,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
 
 from core.execution_cells.effects import (
+    CredentialRevocationError,
     EffectBoundaryError,
     GitHubAppConfig,
     GitHubAppCredentialBroker,
@@ -19,12 +20,12 @@ from core.execution_cells.effects import (
 from core.execution_cells.models import AuthorizedExecutionEnvelope, CellResourceLimits
 
 
-def _intent(expected_sha: str = "a" * 40) -> GitHubFileUpdateIntent:
+def _intent(expected_sha: str = "a" * 40, path: str = "README.md") -> GitHubFileUpdateIntent:
     return GitHubFileUpdateIntent(
         owner="reprewindai-dev",
         repo="sandbox",
         branch="main",
-        path="README.md",
+        path=path,
         expected_blob_sha=expected_sha,
         content_b64=base64.b64encode(b"governed\n").decode("ascii"),
         commit_message="test: governed mutation",
@@ -69,6 +70,19 @@ def _private_key_pem() -> str:
     ).decode("ascii")
 
 
+def _credentials(client: httpx.Client, *, revocation_attempts: int = 1) -> GitHubAppCredentialBroker:
+    return GitHubAppCredentialBroker(
+        GitHubAppConfig(
+            app_id="123",
+            installation_id="456",
+            private_key_pem=_private_key_pem(),
+            api_base="https://api.github.test",
+            revocation_attempts=revocation_attempts,
+        ),
+        client=client,
+    )
+
+
 def test_github_effect_is_state_bound_repo_scoped_and_revoked():
     intent = _intent()
     envelope = _envelope(intent)
@@ -95,21 +109,14 @@ def test_github_effect_is_state_bound_repo_scoped_and_revoked():
         raise AssertionError(f"unexpected request {request.method} {request.url}")
 
     client = httpx.Client(transport=httpx.MockTransport(handler), base_url="https://api.github.test")
-    credentials = GitHubAppCredentialBroker(
-        GitHubAppConfig(
-            app_id="123",
-            installation_id="456",
-            private_key_pem=_private_key_pem(),
-            api_base="https://api.github.test",
-        ),
-        client=client,
-    )
-    result = GitHubEffectBroker(credentials).execute(envelope, intent)
+    result = GitHubEffectBroker(_credentials(client)).execute(envelope, intent)
 
     assert result["mutation_succeeded"] is True
     assert result["before_sha"] == "a" * 40
     assert result["after_blob_sha"] == "b" * 40
     assert result["commit_sha"] == "c" * 40
+    assert result["credential_revoked"] is True
+    assert result["security_status"] == "COMPLETE"
     assert minted_body == {"repositories": ["sandbox"], "permissions": {"contents": "write"}}
     assert [method for method, _ in calls] == ["POST", "GET", "PUT", "DELETE"]
     assert "jit-installation-token" not in repr(result)
@@ -131,19 +138,75 @@ def test_stale_target_state_denies_mutation_and_still_revokes_token():
         raise AssertionError("PUT must not occur after stale-state detection")
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
-    credentials = GitHubAppCredentialBroker(
-        GitHubAppConfig(
-            app_id="123",
-            installation_id="456",
-            private_key_pem=_private_key_pem(),
-        ),
-        client=client,
-    )
-
     with pytest.raises(EffectBoundaryError, match="target state changed"):
-        GitHubEffectBroker(credentials).execute(envelope, intent)
+        GitHubEffectBroker(_credentials(client)).execute(envelope, intent)
 
     assert methods == ["POST", "GET", "DELETE"]
+
+
+def test_authority_is_rechecked_immediately_before_mutation():
+    intent = _intent()
+    envelope = _envelope(intent)
+    methods: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        methods.append(request.method)
+        if request.method == "POST":
+            return httpx.Response(201, json={"token": "jit-installation-token"})
+        if request.method == "GET":
+            envelope.expires_at = datetime.now(timezone.utc) - timedelta(milliseconds=1)
+            return httpx.Response(200, json={"sha": "a" * 40})
+        if request.method == "DELETE":
+            return httpx.Response(204)
+        raise AssertionError("expired authority must not reach PUT")
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    with pytest.raises(EffectBoundaryError, match="expired"):
+        GitHubEffectBroker(_credentials(client)).execute(envelope, intent)
+    assert methods == ["POST", "GET", "DELETE"]
+
+
+def test_authorized_filename_delimiters_are_percent_encoded():
+    intent = _intent(path="docs/a?b#c.md")
+    envelope = _envelope(intent)
+    seen_paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_paths.append(request.url.raw_path.decode())
+        if request.method == "POST":
+            return httpx.Response(201, json={"token": "jit-installation-token"})
+        if request.method == "GET":
+            assert request.url.path.endswith("/contents/docs/a?b#c.md")
+            return httpx.Response(200, json={"sha": "a" * 40})
+        if request.method == "PUT":
+            return httpx.Response(200, json={"content": {"sha": "b" * 40}, "commit": {"sha": "c" * 40}})
+        if request.method == "DELETE":
+            return httpx.Response(204)
+        raise AssertionError
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    GitHubEffectBroker(_credentials(client)).execute(envelope, intent)
+    content_paths = [p for p in seen_paths if "/contents/" in p]
+    assert content_paths
+    assert all("%3F" in p and "%23" in p for p in content_paths)
+
+
+def test_failed_effect_with_unconfirmed_revocation_surfaces_security_incident():
+    intent = _intent()
+    envelope = _envelope(intent)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(201, json={"token": "jit-installation-token"})
+        if request.method == "GET":
+            return httpx.Response(500)
+        if request.method == "DELETE":
+            return httpx.Response(503)
+        raise AssertionError
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    with pytest.raises(CredentialRevocationError, match="revocation was not confirmed"):
+        GitHubEffectBroker(_credentials(client)).execute(envelope, intent)
 
 
 def test_effect_digest_mismatch_denies_before_any_provider_call():
@@ -154,14 +217,5 @@ def test_effect_digest_mismatch_denies_before_any_provider_call():
         raise AssertionError("provider must not be contacted")
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
-    credentials = GitHubAppCredentialBroker(
-        GitHubAppConfig(
-            app_id="123",
-            installation_id="456",
-            private_key_pem=_private_key_pem(),
-        ),
-        client=client,
-    )
-
     with pytest.raises(EffectBoundaryError, match="digest does not match"):
-        GitHubEffectBroker(credentials).execute(envelope, intent)
+        GitHubEffectBroker(_credentials(client)).execute(envelope, intent)
