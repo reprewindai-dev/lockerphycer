@@ -62,7 +62,7 @@ install -d -m 0755 \
 install -m 0755 "${BUSYBOX}" "${MOUNT_DIR}/bin/busybox"
 install -m 0755 "${AGENT}" "${MOUNT_DIR}/usr/local/bin/lockerphycer-cell-agent"
 
-for applet in sh mount umount poweroff reboot; do
+for applet in sh mount umount poweroff reboot cat; do
   ln -sf /bin/busybox "${MOUNT_DIR}/bin/${applet}"
 done
 
@@ -72,7 +72,13 @@ set -eu
 /bin/mount -t proc proc /proc
 /bin/mount -t sysfs sysfs /sys
 /bin/mount -t devtmpfs devtmpfs /dev
-export VEKLOM_VSOCK_PORT="${VEKLOM_VSOCK_PORT:-5000}"
+PORT=5000
+for arg in $(/bin/cat /proc/cmdline); do
+  case "$arg" in
+    veklom.vsock_port=*) PORT="${arg#*=}" ;;
+  esac
+done
+export VEKLOM_VSOCK_PORT="$PORT"
 /usr/local/bin/lockerphycer-cell-agent
 status=$?
 /bin/umount /proc || true
