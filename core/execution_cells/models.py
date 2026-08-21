@@ -2,7 +2,7 @@
 
 These models deliberately separate CAPPO authority from Lockerphycer enforcement.
 A cell may only start from a cryptographically verified, unexpired authority
-lease.  The cell itself never creates or widens authority.
+lease. The cell itself never creates or widens authority.
 """
 
 from __future__ import annotations
@@ -11,6 +11,9 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+IsolationClass = Literal["os-enforced", "microvm"]
 
 
 class CellResourceLimits(BaseModel):
@@ -26,11 +29,7 @@ class CellResourceLimits(BaseModel):
 
 
 class AuthorizedExecutionEnvelope(BaseModel):
-    """Immutable CAPPO-authorized semantic transaction.
-
-    Field names follow CAPPO's approved runtime-authority design.  Unknown
-    authority-bearing fields are rejected instead of being silently ignored.
-    """
+    """Immutable CAPPO-authorized semantic transaction."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -50,6 +49,7 @@ class AuthorizedExecutionEnvelope(BaseModel):
     assignment_id: str = Field(min_length=1)
     runtime_kind: str = Field(min_length=1)
     runtime_instance: str = Field(min_length=1)
+    required_isolation: IsolationClass = "os-enforced"
     policy_digest: str = Field(min_length=1)
     allowed_provider_set: list[str] = Field(min_length=1)
     budget_ceiling: int = Field(ge=0)
@@ -99,7 +99,7 @@ class SignedAuthority(BaseModel):
 class CellRequest(BaseModel):
     """A single disposable workload invocation.
 
-    Credentials are intentionally absent.  External effects are brokered by the
+    Credentials are intentionally absent. External effects are brokered by the
     host/control plane; static or JIT upstream credentials are never passed to
     the untrusted workload environment.
     """
@@ -127,7 +127,10 @@ class CellResult(BaseModel):
     stdout: str = ""
     stderr: str = ""
     runtime: str
+    isolation_class: IsolationClass = "os-enforced"
     network_mode: Literal["none"] = "none"
     credential_mode: Literal["brokered_only"] = "brokered_only"
+    runtime_measurement: str | None = None
+    network_policy_digest: str | None = None
     teardown_confirmed: bool
     authority_digest: str
