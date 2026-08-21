@@ -1,16 +1,19 @@
 """Host-enforced OCI runtime for disposable governed execution cells.
 
 The untrusted workload gets no network namespace connectivity and receives no
-upstream credential.  External consequences are brokered by the trusted host
+upstream credential. External consequences are brokered by the trusted host
 plane after the cell produces a structured result/effect intent.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
+import selectors
 import shutil
 import subprocess
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Protocol
@@ -40,7 +43,7 @@ def _safe_cell_name(execution_id: str) -> str:
 class OCICellRuntime:
     """Run one cell using Podman or Docker with fail-closed isolation flags.
 
-    This is intentionally a host-side primitive.  Do not expose a Docker/Podman
+    This is intentionally a host-side primitive. Do not expose a Docker/Podman
     socket inside the untrusted cell and do not mount host credentials into it.
     """
 
@@ -134,7 +137,6 @@ class OCICellRuntime:
             f"VEKLOM_GRANT_ID={request.authority.envelope.grant_id}",
         ]
 
-        # Only explicitly supplied non-credential environment is forwarded.
         for key, value in sorted(request.safe_environment.items()):
             cmd.extend(["--env", f"{key}={value}"])
 
@@ -143,23 +145,123 @@ class OCICellRuntime:
         return cmd
 
     def _force_remove(self, cell_id: str) -> None:
-        subprocess.run(
-            [self.runtime_binary, "rm", "-f", cell_id],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=10,
-            check=False,
-        )
+        try:
+            subprocess.run(
+                [self.runtime_binary, "rm", "-f", cell_id],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=10,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise CellRuntimeError("cell runtime cleanup timed out") from exc
 
     def _teardown_confirmed(self, cell_id: str) -> bool:
-        probe = subprocess.run(
-            [self.runtime_binary, "inspect", cell_id],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=10,
-            check=False,
-        )
-        return probe.returncode != 0
+        """Confirm absence without treating arbitrary runtime failure as proof."""
+        try:
+            if self.runtime_name == "podman":
+                probe = subprocess.run(
+                    [self.runtime_binary, "container", "exists", cell_id],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                    timeout=10,
+                    check=False,
+                )
+                if probe.returncode == 0:
+                    return False
+                if probe.returncode == 1:  # documented Podman "does not exist"
+                    return True
+                raise CellRuntimeError("Podman could not verify cell teardown")
+
+            probe = subprocess.run(
+                [self.runtime_binary, "inspect", "--type", "container", cell_id],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                timeout=10,
+                check=False,
+            )
+            if probe.returncode == 0:
+                return False
+            diagnostic = (probe.stderr or b"")[:4096].decode("utf-8", errors="replace").lower()
+            if "no such object" in diagnostic or "no such container" in diagnostic:
+                return True
+            raise CellRuntimeError("OCI runtime could not verify cell teardown")
+        except subprocess.TimeoutExpired as exc:
+            raise CellRuntimeError("cell teardown inspection timed out") from exc
+
+    def _collect_bounded(
+        self,
+        process: subprocess.Popen,
+        *,
+        payload: bytes,
+        timeout_seconds: int,
+        cell_id: str,
+    ) -> tuple[bytes, bytes, bool, bool]:
+        """Stream stdout/stderr into bounded host buffers while the cell runs."""
+        if process.stdin is None or process.stdout is None or process.stderr is None:
+            raise CellRuntimeError("cell runtime pipes were not created")
+
+        try:
+            process.stdin.write(payload)
+            process.stdin.flush()
+        finally:
+            process.stdin.close()
+
+        os.set_blocking(process.stdout.fileno(), False)
+        os.set_blocking(process.stderr.fileno(), False)
+        selector = selectors.DefaultSelector()
+        selector.register(process.stdout, selectors.EVENT_READ, "stdout")
+        selector.register(process.stderr, selectors.EVENT_READ, "stderr")
+
+        stdout = bytearray()
+        stderr = bytearray()
+        total = 0
+        timed_out = False
+        output_exceeded = False
+        deadline = time.monotonic() + timeout_seconds
+
+        try:
+            while selector.get_map():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    timed_out = True
+                    break
+                events = selector.select(timeout=min(0.1, remaining))
+                if not events:
+                    if process.poll() is not None:
+                        # Continue briefly so EOF becomes readable and both pipes drain.
+                        continue
+                    continue
+                for key, _ in events:
+                    try:
+                        chunk = os.read(key.fileobj.fileno(), 65536)
+                    except BlockingIOError:
+                        continue
+                    if not chunk:
+                        selector.unregister(key.fileobj)
+                        continue
+                    total += len(chunk)
+                    if total > self.max_output_bytes:
+                        output_exceeded = True
+                        break
+                    if key.data == "stdout":
+                        stdout.extend(chunk)
+                    else:
+                        stderr.extend(chunk)
+                if output_exceeded:
+                    break
+        finally:
+            selector.close()
+
+        if timed_out or output_exceeded:
+            self._force_remove(cell_id)
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+
+        return bytes(stdout), bytes(stderr), timed_out, output_exceeded
 
     def run(self, request: CellRequest) -> CellResult:
         authority_hash = self._validate_request(request)
@@ -167,10 +269,6 @@ class OCICellRuntime:
         cell_id = _safe_cell_name(envelope.execution_id)
         command = self.build_command(request, cell_id)
         started_at = datetime.now(timezone.utc)
-        timed_out = False
-        exit_code: int | None = None
-        stdout = b""
-        stderr = b""
 
         process = subprocess.Popen(
             command,
@@ -182,34 +280,27 @@ class OCICellRuntime:
         )
 
         payload = json.dumps(request.input_payload, separators=(",", ":")).encode("utf-8")
+        output_error: CellRuntimeError | None = None
         try:
-            stdout, stderr = process.communicate(
-                input=payload,
-                timeout=envelope.resource_constraints.timeout_seconds,
+            stdout, stderr, timed_out, output_exceeded = self._collect_bounded(
+                process,
+                payload=payload,
+                timeout_seconds=envelope.resource_constraints.timeout_seconds,
+                cell_id=cell_id,
             )
             exit_code = process.returncode
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            self._force_remove(cell_id)
-            try:
-                stdout, stderr = process.communicate(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                stdout, stderr = process.communicate()
-            exit_code = process.returncode
+            if output_exceeded:
+                output_error = CellRuntimeError("cell output exceeded host-enforced byte limit")
         finally:
-            # ``--rm`` should remove the cell, but cleanup is explicit and
-            # idempotent so a runtime failure cannot silently leave authority alive.
             self._force_remove(cell_id)
 
         teardown_confirmed = self._teardown_confirmed(cell_id)
         if not teardown_confirmed:
             raise CellRuntimeError("cell teardown could not be confirmed")
+        if output_error is not None:
+            raise output_error
 
         completed_at = datetime.now(timezone.utc)
-        stdout = stdout[: self.max_output_bytes]
-        stderr = stderr[: self.max_output_bytes]
-
         return CellResult(
             cell_id=cell_id,
             execution_id=envelope.execution_id,
