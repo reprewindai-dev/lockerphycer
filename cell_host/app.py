@@ -117,6 +117,20 @@ def _runtime_for(authority: SignedAuthority) -> Any:
     raise CellHostConfigurationError("unsupported required_isolation value")
 
 
+def _require_runtime_artifact_binding(request: CellRequest) -> None:
+    """Require the exact runtime artifact selected by CAPPO's signed authority."""
+    envelope = request.authority.envelope
+    if envelope.runtime_image_digest is None:
+        raise CellRuntimeError("signed authority is missing runtime_image_digest")
+    if "@sha256:" not in request.image:
+        raise CellRuntimeError("cell image must be pinned by immutable sha256 digest")
+    requested_digest = request.image.rsplit("@", 1)[1].lower()
+    if requested_digest != envelope.runtime_image_digest:
+        raise CellRuntimeError("requested runtime image does not match CAPPO-signed authority")
+    if envelope.required_isolation == "microvm" and envelope.runtime_kernel_digest is None:
+        raise CellRuntimeError("microVM authority is missing runtime_kernel_digest")
+
+
 def _authorize_host_call(value: str | None) -> None:
     if not value or not hmac.compare_digest(value, _CELL_HOST_KEY):
         raise HTTPException(status_code=401, detail="cell-host authentication failed")
@@ -164,6 +178,7 @@ def run_cell(
     _authorize_host_call(x_cell_host_key)
     try:
         _AUTHORITY_VERIFIER.verify(request.authority)
+        _require_runtime_artifact_binding(request)
         runtime = _runtime_for(request.authority)
         _REPLAY.consume(request.authority, "cell_run")
         result = runtime.run(request)
