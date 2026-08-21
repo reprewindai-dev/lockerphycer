@@ -41,11 +41,15 @@ def _safe_cell_name(execution_id: str) -> str:
 
 
 class OCICellRuntime:
-    """Run one cell using Podman or Docker with fail-closed isolation flags.
+    """Run one Level-2 cell using Podman or Docker with fail-closed isolation.
 
     This is intentionally a host-side primitive. Do not expose a Docker/Podman
     socket inside the untrusted cell and do not mount host credentials into it.
+    Conventional OCI cells share the host kernel and therefore do not satisfy
+    the hard-isolation claim reserved for the Firecracker backend.
     """
+
+    isolation_class = "os-enforced"
 
     def __init__(
         self,
@@ -79,13 +83,10 @@ class OCICellRuntime:
 
         if "@sha256:" not in request.image:
             raise CellRuntimeError("cell image must be pinned by immutable sha256 digest")
-
         if envelope.runtime_kind != "lockerphycer-cell":
             raise CellRuntimeError("authority runtime_kind does not authorize a Lockerphycer cell")
-
         if self.expected_runtime_instance and envelope.runtime_instance != self.expected_runtime_instance:
             raise CellRuntimeError("authority is bound to a different Lockerphycer cell host")
-
         if not envelope.allowed_provider_set:
             raise CellRuntimeError("authority has no allowed provider set")
 
@@ -99,7 +100,6 @@ class OCICellRuntime:
 
     def build_command(self, request: CellRequest, cell_id: str) -> list[str]:
         limits = request.authority.envelope.resource_constraints
-
         cmd = [
             self.runtime_binary,
             "run",
@@ -136,10 +136,8 @@ class OCICellRuntime:
             "--env",
             f"VEKLOM_GRANT_ID={request.authority.envelope.grant_id}",
         ]
-
         for key, value in sorted(request.safe_environment.items()):
             cmd.extend(["--env", f"{key}={value}"])
-
         cmd.append(request.image)
         cmd.extend(request.command)
         return cmd
@@ -169,7 +167,7 @@ class OCICellRuntime:
                 )
                 if probe.returncode == 0:
                     return False
-                if probe.returncode == 1:  # documented Podman "does not exist"
+                if probe.returncode == 1:
                     return True
                 raise CellRuntimeError("Podman could not verify cell teardown")
 
@@ -194,31 +192,33 @@ class OCICellRuntime:
         process: subprocess.Popen,
         *,
         payload: bytes,
-        timeout_seconds: int,
+        timeout_seconds: float,
         cell_id: str,
     ) -> tuple[bytes, bytes, bool, bool]:
-        """Stream stdout/stderr into bounded host buffers while the cell runs."""
+        """Move stdin/stdout/stderr under one bounded, nonblocking deadline."""
         if process.stdin is None or process.stdout is None or process.stderr is None:
             raise CellRuntimeError("cell runtime pipes were not created")
 
-        try:
-            process.stdin.write(payload)
-            process.stdin.flush()
-        finally:
-            process.stdin.close()
-
+        os.set_blocking(process.stdin.fileno(), False)
         os.set_blocking(process.stdout.fileno(), False)
         os.set_blocking(process.stderr.fileno(), False)
+
         selector = selectors.DefaultSelector()
         selector.register(process.stdout, selectors.EVENT_READ, "stdout")
         selector.register(process.stderr, selectors.EVENT_READ, "stderr")
+        if payload:
+            selector.register(process.stdin, selectors.EVENT_WRITE, "stdin")
+        else:
+            process.stdin.close()
 
+        payload_view = memoryview(payload)
+        payload_offset = 0
         stdout = bytearray()
         stderr = bytearray()
-        total = 0
+        output_total = 0
         timed_out = False
         output_exceeded = False
-        deadline = time.monotonic() + timeout_seconds
+        deadline = time.monotonic() + max(0.001, float(timeout_seconds))
 
         try:
             while selector.get_map():
@@ -226,40 +226,75 @@ class OCICellRuntime:
                 if remaining <= 0:
                     timed_out = True
                     break
+
                 events = selector.select(timeout=min(0.1, remaining))
                 if not events:
                     if process.poll() is not None:
-                        # Continue briefly so EOF becomes readable and both pipes drain.
+                        # EOF notifications may arrive on the next selector pass.
                         continue
                     continue
-                for key, _ in events:
-                    try:
-                        chunk = os.read(key.fileobj.fileno(), 65536)
-                    except BlockingIOError:
+
+                for key, mask in events:
+                    if key.data == "stdin" and mask & selectors.EVENT_WRITE:
+                        try:
+                            written = os.write(process.stdin.fileno(), payload_view[payload_offset:])
+                            payload_offset += written
+                        except (BlockingIOError, InterruptedError):
+                            continue
+                        except (BrokenPipeError, OSError):
+                            selector.unregister(process.stdin)
+                            process.stdin.close()
+                            continue
+                        if payload_offset >= len(payload):
+                            selector.unregister(process.stdin)
+                            process.stdin.close()
                         continue
-                    if not chunk:
-                        selector.unregister(key.fileobj)
-                        continue
-                    total += len(chunk)
-                    if total > self.max_output_bytes:
-                        output_exceeded = True
-                        break
-                    if key.data == "stdout":
-                        stdout.extend(chunk)
-                    else:
-                        stderr.extend(chunk)
+
+                    if mask & selectors.EVENT_READ:
+                        try:
+                            chunk = os.read(key.fileobj.fileno(), 65536)
+                        except (BlockingIOError, InterruptedError):
+                            continue
+                        if not chunk:
+                            selector.unregister(key.fileobj)
+                            continue
+                        output_total += len(chunk)
+                        if output_total > self.max_output_bytes:
+                            output_exceeded = True
+                            break
+                        if key.data == "stdout":
+                            stdout.extend(chunk)
+                        else:
+                            stderr.extend(chunk)
+
                 if output_exceeded:
                     break
         finally:
             selector.close()
+            if process.stdin and not process.stdin.closed:
+                process.stdin.close()
 
         if timed_out or output_exceeded:
             self._force_remove(cell_id)
-        try:
-            process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=5)
+
+        remaining = deadline - time.monotonic()
+        if process.poll() is None:
+            if remaining <= 0:
+                timed_out = True
+                self._force_remove(cell_id)
+            else:
+                try:
+                    process.wait(timeout=remaining)
+                except subprocess.TimeoutExpired:
+                    timed_out = True
+                    self._force_remove(cell_id)
+
+        if process.poll() is None:
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=2)
 
         return bytes(stdout), bytes(stderr), timed_out, output_exceeded
 
@@ -269,6 +304,14 @@ class OCICellRuntime:
         cell_id = _safe_cell_name(envelope.execution_id)
         command = self.build_command(request, cell_id)
         started_at = datetime.now(timezone.utc)
+
+        remaining_authority = (envelope.expires_at - started_at).total_seconds()
+        if remaining_authority <= 0:
+            raise CellRuntimeError("authority expired before cell spawn")
+        effective_timeout = min(
+            float(envelope.resource_constraints.timeout_seconds),
+            remaining_authority,
+        )
 
         process = subprocess.Popen(
             command,
@@ -285,7 +328,7 @@ class OCICellRuntime:
             stdout, stderr, timed_out, output_exceeded = self._collect_bounded(
                 process,
                 payload=payload,
-                timeout_seconds=envelope.resource_constraints.timeout_seconds,
+                timeout_seconds=effective_timeout,
                 cell_id=cell_id,
             )
             exit_code = process.returncode
@@ -312,6 +355,7 @@ class OCICellRuntime:
             stdout=stdout.decode("utf-8", errors="replace"),
             stderr=stderr.decode("utf-8", errors="replace"),
             runtime=self.runtime_name,
+            isolation_class=self.isolation_class,
             teardown_confirmed=True,
             authority_digest=authority_hash,
         )
