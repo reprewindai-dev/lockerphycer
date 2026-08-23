@@ -29,10 +29,10 @@ Reviewed feature branches may extend Lockerphycer's execution-security boundary.
 - deployment/runtime configuration is supplied by the deployment environment;
 - secrets and internal credentials must not be committed.
 
-API documentation is conditional on `DEBUG=true`. For local development, for example:
+API documentation is conditional on `DEBUG=true`. For local development, configure a non-production `SECRET_KEY` of at least 32 characters in your shell or local `.env` first; do not commit that value. Then start the service with:
 
 ```bash
-DEBUG=true uvicorn apps.api.main:app --reload --port 8092
+SECRET_KEY="${SECRET_KEY:?set a non-production 32+ character development key}" DEBUG=true uvicorn apps.api.main:app --reload --port 8092
 ```
 
 then visit:
