@@ -22,10 +22,10 @@ Reviewed feature branches may extend Lockerphycer's execution-security boundary.
 
 ## Runtime contract
 
-- reported Lockerphycer host-facing application port: **8092**;
-- internal container port **8000** is valid behind Traefik when deployment configuration maps it correctly;
+- reported Lockerphycer application port: **8092**;
+- canonical/root production application fallbacks **3000** and **8000** are forbidden; source, container listener, health checks, and routing examples should agree on `8092` unless an explicit reviewed migration contract changes that value;
 - cAPI commonly reports **3003**, but deployment truth comes from the current runtime, not this README;
-- host port `8000` must not be claimed for Lockerphycer where it conflicts with Coolify/runtime ownership;
+- a different internal listener must not be inferred merely because Traefik can map ports; it requires an explicit source/deployment migration and independent runtime verification;
 - deployment/runtime configuration is supplied by the deployment environment;
 - secrets and internal credentials must not be committed.
 
