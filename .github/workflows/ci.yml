@@ -15,7 +15,9 @@ jobs:
           python-version: "3.11"
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Compile
-        run: python -m compileall apps core db tests
+      - name: Compile Python
+        run: python -m compileall apps core cell_host db tests
+      - name: Compile Firecracker guest agent
+        run: cargo check --manifest-path microvm_guest/Cargo.toml
       - name: Test
         run: pytest -q
