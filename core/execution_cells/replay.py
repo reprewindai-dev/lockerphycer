@@ -135,8 +135,16 @@ class SQLiteReplayStore:
         effect_digest: str,
         cell_id: str,
     ) -> None:
-        """Persist the exact effect digest emitted by a successful torn-down cell."""
-        self.prune_expired()
+        """Persist the exact effect digest emitted by a successful torn-down cell.
+
+        Do not prune before recording.  Authority is verified before the cell is
+        dispatched, but a legitimate bounded cell may finish after its authority
+        expires.  Pruning here could delete the already-consumed ``cell_run`` row
+        between dispatch and result recording, manufacturing a false
+        ``cell_run stage was not consumed`` result.  The recorded output keeps the
+        original expiry and therefore cannot authorize a later effect after expiry;
+        ``require_cell_success`` prunes/checks that boundary separately.
+        """
         proof = authority.proof
         envelope = authority.envelope
         try:

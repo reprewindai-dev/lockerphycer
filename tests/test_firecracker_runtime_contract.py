@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import os
+import subprocess
+import sys
+import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
@@ -154,9 +158,92 @@ def test_microvm_rejects_runtime_artifact_substitution(tmp_path, monkeypatch) ->
         runtime._verify_artifacts(request)
 
 
+def test_microvm_rejects_observed_kernel_tamper(tmp_path, monkeypatch) -> None:
+    runtime, kernel, rootfs = _runtime(tmp_path, monkeypatch)
+    signed_kernel_digest = _digest(kernel)
+    authority = _authority(rootfs_digest=_digest(rootfs), kernel_digest=signed_kernel_digest)
+    request = CellRequest(
+        authority=authority,
+        image=f"lockerphycer-rootfs@{_digest(rootfs)}",
+        command=["/usr/local/bin/lockerphycer-cell-agent"],
+    )
+
+    # Tamper after the configured/signed digest was established. The runtime must
+    # measure the file at execution time and fail rather than trusting config text.
+    kernel.write_bytes(b"tampered-kernel")
+    with pytest.raises(FirecrackerRuntimeError, match="observed Firecracker kernel measurement mismatch"):
+        runtime._verify_artifacts(request)
+
+
+def test_microvm_rejects_wrong_runtime_instance(tmp_path, monkeypatch) -> None:
+    runtime, kernel, rootfs = _runtime(tmp_path, monkeypatch)
+    authority = _authority(rootfs_digest=_digest(rootfs), kernel_digest=_digest(kernel))
+    authority = authority.model_copy(
+        update={"envelope": authority.envelope.model_copy(update={"runtime_instance": "different-host"})}
+    )
+    request = CellRequest(
+        authority=authority,
+        image=f"lockerphycer-rootfs@{_digest(rootfs)}",
+        command=["/usr/local/bin/lockerphycer-cell-agent"],
+    )
+
+    with pytest.raises(FirecrackerRuntimeError, match="different Lockerphycer cell host"):
+        runtime._verify_artifacts(request)
+
+
+def test_microvm_constructor_fails_without_kvm(tmp_path, monkeypatch) -> None:
+    binary = tmp_path / "firecracker"
+    kernel = tmp_path / "vmlinux"
+    rootfs = tmp_path / "rootfs.ext4"
+    binary.write_bytes(b"firecracker-test-binary")
+    kernel.write_bytes(b"kernel-test")
+    rootfs.write_bytes(b"rootfs-test")
+    binary.chmod(0o755)
+    config = FirecrackerConfig(
+        binary=str(binary),
+        kernel_path=str(kernel),
+        rootfs_path=str(rootfs),
+        kernel_digest=_digest(kernel),
+        rootfs_digest=_digest(rootfs),
+        state_dir=str(tmp_path / "state"),
+    )
+    real_exists = os.path.exists
+    monkeypatch.setattr(os.path, "exists", lambda path: False if path == "/dev/kvm" else real_exists(path))
+
+    with pytest.raises(FirecrackerRuntimeError, match="/dev/kvm is unavailable"):
+        FirecrackerMicroVMRuntime(_Verifier(), config, expected_runtime_instance="host-a")
+
+
+def test_microvm_termination_confirms_real_process_absence() -> None:
+    process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    try:
+        # Give the child enough time to become observable before exercising teardown.
+        time.sleep(0.05)
+        assert process.poll() is None
+        assert FirecrackerMicroVMRuntime._terminate(process, deadline_seconds=2.0) is True
+        assert process.poll() is not None
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=2)
+
+
+def test_cell_host_microvm_selection_has_no_oci_fallback() -> None:
+    source = (Path(__file__).resolve().parents[1] / "cell_host" / "app.py").read_text(encoding="utf-8")
+    assert 'if required == "microvm"' in source
+    assert "return _firecracker_runtime()" in source
+    assert 'if required == "os-enforced"' in source
+    assert "return _oci_runtime()" in source
+    # The microVM branch must not contain a try/except that weakens signed hard
+    # isolation into OCI when KVM, Firecracker, or measured artifacts are absent.
+    microvm_branch = source.split('if required == "microvm"', 1)[1].split('if required == "os-enforced"', 1)[0]
+    assert "except" not in microvm_branch
+    assert "_oci_runtime" not in microvm_branch
+
+
 def test_firecracker_source_configures_vsock_but_no_guest_nic() -> None:
     source = (
-        __import__("pathlib").Path(__file__).resolve().parents[1]
+        Path(__file__).resolve().parents[1]
         / "core"
         / "execution_cells"
         / "firecracker.py"
