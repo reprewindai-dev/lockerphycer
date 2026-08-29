@@ -4,8 +4,7 @@ param(
 
     [string]$RunnerRoot = "C:\actions-runner",
     [string]$RepositoryUrl = "https://github.com/reprewindai-dev/lockerphycer",
-    [string]$RunnerName = "$env:COMPUTERNAME-VEKLOM-PREDATOR",
-    [switch]$InstallService
+    [string]$RunnerName = "$env:COMPUTERNAME-VEKLOM-PREDATOR"
 )
 
 $ErrorActionPreference = "Stop"
@@ -28,9 +27,8 @@ Write-Host "[runner-bootstrap] runner name: $RunnerName"
 Write-Host "[runner-bootstrap] labels: veklom-predator,windows,x64"
 
 # A prior runner registration may have been deleted by GitHub after being offline.
-# We deliberately remove only local registration metadata; secrets and work files
-# are not printed or copied. The new repository-scoped registration token is
-# passed directly to config.cmd and is never persisted by this script.
+# Remove only local registration metadata. The new repository-scoped registration
+# token is passed directly to config.cmd and is never written or printed here.
 $staleFiles = @(
     ".runner",
     ".credentials",
@@ -58,14 +56,6 @@ try {
 
     if ($LASTEXITCODE -ne 0) {
         throw "GitHub runner configuration failed with exit code $LASTEXITCODE"
-    }
-
-    if ($InstallService) {
-        Write-Host "[runner-bootstrap] installing Windows service"
-        & $configCmd --unattended --replace --url $RepositoryUrl --token $RegistrationToken --name $RunnerName --labels "veklom-predator,windows,x64" --work "_work" --runasservice
-        if ($LASTEXITCODE -ne 0) {
-            throw "Runner service configuration failed with exit code $LASTEXITCODE"
-        }
     }
 
     Write-Host "[runner-bootstrap] registration complete"
