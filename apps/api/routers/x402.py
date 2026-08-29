@@ -198,6 +198,11 @@ async def require_x402_payment(
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
+# Process-local duplicate response cache for the lightweight gate endpoint.
+# This fixes the pre-existing indentation defect without changing its semantics.
+_processed_payments = set()
+
+
 @router.get("/gate")
 async def x402_gate(
     request: Request,
@@ -210,8 +215,6 @@ async def x402_gate(
     - Valid x-payment header → verifies on-chain, settles, returns 200
     """
     resource_path = "/api/v1/x402/gate"
-
-_processed_payments = set()
 
     if not x_payment:
         return _payment_required_response(resource_path, "Veklom API gateway access — $0.10 USDC")
