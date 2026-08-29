@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""Veklom cross-system Predator probe using only real network/runtime boundaries.
+"""Veklom cross-system Predator probe using real runtime and evidence boundaries.
 
-Required chain:
-    signed CAPPO authority -> Lockerphycer cell-host -> real GitHub consequence
-    -> real PGL persistence/readback/chain verification
+Required positive chain:
+    independently signed CAPPO authority
+      -> Lockerphycer cell-host
+      -> real OCI cell
+      -> real GitHub consequence broker
+      -> real PGL persistence/readback/chain verification
 
-There is deliberately no MockTarget, MockPGL, or synthetic success path here.
-Missing infrastructure is a hard failure and never earns a proof status.
+Negative tests that require a fresh one-time authority use separate independently
+signed fixture files.  The probe never signs its own authority, never falls back
+to mocks, and never promotes a rejection caused by replay into proof of another
+security property.
 """
 
 from __future__ import annotations
@@ -17,10 +22,9 @@ import os
 import platform
 import subprocess
 import sys
-import tempfile
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 
@@ -28,7 +32,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from core.execution_cells.authority import authority_digest, canonical_json_bytes
+from core.execution_cells.authority import authority_digest
 from core.execution_cells.effects import GitHubFileUpdateIntent, effect_digest
 from core.execution_cells.models import SignedAuthority
 from core.execution_cells.pgl_client import PGLEvidenceError, RealPGLClient
@@ -52,12 +56,45 @@ def read_json_file(path: str) -> dict[str, Any]:
     return raw
 
 
-def _host_sentinel_create(secret: str) -> tuple[str, callable]:
-    """Create a host-only sentinel in the Podman host's /tmp namespace."""
+def load_signed_authority(env_name: str) -> tuple[dict[str, Any], SignedAuthority]:
+    raw = read_json_file(required(env_name))
+    return raw, SignedAuthority.model_validate(raw)
+
+
+def assert_fixture_binding(
+    authority: SignedAuthority,
+    *,
+    image: str,
+    intent: GitHubFileUpdateIntent,
+    fixture_name: str,
+    require_current: bool = True,
+) -> None:
+    expected_effect = effect_digest(intent)
+    envelope = authority.envelope
+    if envelope.semantic_intent_digest != expected_effect:
+        raise ProbeFailure(f"{fixture_name} is not bound to the exact GitHub effect fixture")
+    if envelope.runtime_image_digest != image.rsplit("@", 1)[1].lower():
+        raise ProbeFailure(f"{fixture_name} runtime_image_digest does not match PREDATOR_IMAGE")
+    if envelope.required_isolation != "os-enforced":
+        raise ProbeFailure(f"{fixture_name} must require os-enforced isolation for the L2 campaign")
+    if require_current:
+        try:
+            envelope.assert_current()
+        except ValueError as exc:
+            raise ProbeFailure(f"{fixture_name} is not currently usable: {exc}") from exc
+
+
+def _host_sentinel_create(secret: str) -> tuple[str, Callable[[], None]]:
+    """Create a host-only sentinel in the same Linux host that owns Podman."""
     sentinel = f"/tmp/veklom-host-sentinel-{uuid.uuid4().hex}.txt"
     if platform.system().lower() == "windows":
         result = subprocess.run(
-            ["wsl", "sh", "-lc", f"umask 077; printf '%s' {json.dumps(secret)} > {sentinel}; test -f {sentinel}"],
+            [
+                "wsl",
+                "sh",
+                "-lc",
+                f"umask 077; printf '%s' {json.dumps(secret)} > {sentinel}; test -f {sentinel}",
+            ],
             capture_output=True,
             text=True,
             timeout=10,
@@ -81,7 +118,7 @@ def _host_sentinel_create(secret: str) -> tuple[str, callable]:
 
 
 def hostile_program() -> str:
-    """Cell program: hostile observations go to stderr; exact effect JSON to stdout."""
+    """Hostile cell witness on stderr; exact authorized effect intent on stdout."""
     return r'''
 import json, os, socket, sys, urllib.request
 payload=json.load(sys.stdin)
@@ -105,6 +142,7 @@ for line in open("/proc/self/status",encoding="utf-8",errors="replace"):
     if line.startswith(("CapEff:","CapBnd:","NSpid:")):
         k,v=line.split(":",1); status[k]=v.strip()
 checks["cap_eff_zero"] = status.get("CapEff") == "0000000000000000"
+checks["cap_bnd"] = status.get("CapBnd")
 checks["nspid"] = status.get("NSpid")
 checks["uid"] = os.getuid()
 checks["gid"] = os.getgid()
@@ -133,7 +171,14 @@ class CellHostClient:
             raise ProbeFailure("Lockerphycer cell host is not healthy")
         return body
 
-    def run_cell(self, *, authority: dict[str, Any], image: str, intent: dict[str, Any], sentinel: str) -> httpx.Response:
+    def run_cell(
+        self,
+        *,
+        authority: dict[str, Any],
+        image: str,
+        intent: dict[str, Any],
+        sentinel: str,
+    ) -> httpx.Response:
         return self.client.post(
             f"{self.base_url}/v1/cells/run",
             headers=self.headers,
@@ -157,25 +202,48 @@ class CellHostClient:
         )
 
 
-def expect_rejected(response: httpx.Response, *, test_id: str, allowed: set[int] = {403, 409}) -> None:
-    if response.status_code not in allowed:
-        raise ProbeFailure(f"{test_id} expected governed rejection, got HTTP {response.status_code}: {response.text[:500]}")
+def expect_rejected(
+    response: httpx.Response,
+    *,
+    test_id: str,
+    allowed: set[int] | None = None,
+    detail_contains: str | None = None,
+) -> None:
+    expected = allowed or {403, 409}
+    if response.status_code not in expected:
+        raise ProbeFailure(
+            f"{test_id} expected governed rejection, got HTTP {response.status_code}: {response.text[:500]}"
+        )
+    if detail_contains and detail_contains.lower() not in response.text.lower():
+        raise ProbeFailure(
+            f"{test_id} rejected for the wrong reason; expected detail containing {detail_contains!r}, "
+            f"got: {response.text[:500]}"
+        )
     print(f"[PASS] {test_id}: governed rejection HTTP {response.status_code}")
 
 
 def validate_witness(stderr: str) -> dict[str, Any]:
     lines = [line for line in stderr.splitlines() if line.strip()]
     if not lines:
-        raise ProbeFailure("A00 cell did not emit L2 witness evidence")
+        raise ProbeFailure("cell did not emit L2 witness evidence")
     try:
         record = json.loads(lines[-1])
     except json.JSONDecodeError as exc:
-        raise ProbeFailure("A00 L2 witness was not valid JSON") from exc
+        raise ProbeFailure("L2 witness was not valid JSON") from exc
     witness = record.get("l2_witness") if isinstance(record, dict) else None
     if not isinstance(witness, dict):
-        raise ProbeFailure("A00 L2 witness object missing")
-    denied = ["public_ipv4", "dns", "metadata", "raw_socket", "docker_socket", "podman_socket", "host_sentinel", "rootfs_write"]
-    for name in denied:
+        raise ProbeFailure("L2 witness object missing")
+    denied_names = [
+        "public_ipv4",
+        "dns",
+        "metadata",
+        "raw_socket",
+        "docker_socket",
+        "podman_socket",
+        "host_sentinel",
+        "rootfs_write",
+    ]
+    for name in denied_names:
         item = witness.get(name)
         if not isinstance(item, dict) or item.get("denied") is not True:
             raise ProbeFailure(f"L2 containment witness failed: {name}")
@@ -188,12 +256,38 @@ def validate_witness(stderr: str) -> dict[str, Any]:
     return witness
 
 
+def require_successful_cell(
+    cell: CellHostClient,
+    *,
+    authority_raw: dict[str, Any],
+    image: str,
+    intent: GitHubFileUpdateIntent,
+    sentinel: str,
+    test_id: str,
+    validate_hostile_witness: bool = False,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    response = cell.run_cell(
+        authority=authority_raw,
+        image=image,
+        intent=intent.model_dump(mode="json"),
+        sentinel=sentinel,
+    )
+    if response.status_code != 200:
+        raise ProbeFailure(f"{test_id} cell run failed: HTTP {response.status_code}: {response.text[:1000]}")
+    result = response.json()
+    if result.get("exit_code") != 0 or result.get("timed_out") is True:
+        raise ProbeFailure(f"{test_id} cell did not complete successfully")
+    if result.get("teardown_confirmed") is not True:
+        raise ProbeFailure(f"{test_id} cell teardown was not positively confirmed")
+    witness = validate_witness(str(result.get("stderr", ""))) if validate_hostile_witness else None
+    return result, witness
+
+
 def main() -> int:
     cell_url = os.environ.get("LOCKERPHYCER_CELL_HOST_URL", "http://127.0.0.1:8765")
     cell_key = required("LOCKERPHYCER_CELL_HOST_API_KEY")
     image = required("PREDATOR_IMAGE")
-    authority_path = required("PREDATOR_AUTHORITY_FILE")
-    intent_path = required("PREDATOR_GITHUB_INTENT_FILE")
+    intent = GitHubFileUpdateIntent.model_validate(read_json_file(required("PREDATOR_GITHUB_INTENT_FILE")))
     pgl_url = os.environ.get("PGL_BASE_URL", "http://127.0.0.1:8001")
     pgl_key = required("PGL_API_KEY")
     pgl_agent = required("PGL_AGENT_ID")
@@ -201,39 +295,89 @@ def main() -> int:
     if "@sha256:" not in image:
         raise ProbeFailure("PREDATOR_IMAGE must be immutable and pinned with @sha256")
 
-    authority_raw = read_json_file(authority_path)
-    authority = SignedAuthority.model_validate(authority_raw)
-    intent = GitHubFileUpdateIntent.model_validate(read_json_file(intent_path))
-    expected_effect = effect_digest(intent)
-    if authority.envelope.semantic_intent_digest != expected_effect:
-        raise ProbeFailure("CAPPO authority is not bound to the exact GitHub effect fixture")
-    if authority.envelope.runtime_image_digest != image.rsplit("@", 1)[1].lower():
-        raise ProbeFailure("CAPPO authority runtime_image_digest does not match PREDATOR_IMAGE")
+    a00_raw, a00 = load_signed_authority("PREDATOR_AUTHORITY_FILE")
+    a02_raw, a02 = load_signed_authority("PREDATOR_A02_AUTHORITY_FILE")
+    a03_raw, a03 = load_signed_authority("PREDATOR_A03_AUTHORITY_FILE")
+    a09_raw, a09 = load_signed_authority("PREDATOR_A09_AUTHORITY_FILE")
+    assert_fixture_binding(a00, image=image, intent=intent, fixture_name="A00 authority")
+    assert_fixture_binding(a02, image=image, intent=intent, fixture_name="A02 authority")
+    assert_fixture_binding(a09, image=image, intent=intent, fixture_name="A09 authority")
+    assert_fixture_binding(
+        a03,
+        image=image,
+        intent=intent,
+        fixture_name="A03 authority",
+        require_current=False,
+    )
+    try:
+        a03.envelope.assert_current()
+    except ValueError as exc:
+        if "expired" not in str(exc).lower():
+            raise ProbeFailure(f"A03 authority must be specifically expired, got: {exc}") from exc
+    else:
+        raise ProbeFailure("A03 authority fixture is not expired")
 
-    sentinel_secret = uuid.uuid4().hex
-    sentinel, cleanup_sentinel = _host_sentinel_create(sentinel_secret)
+    fixture_ids = {
+        a00.envelope.execution_id,
+        a02.envelope.execution_id,
+        a03.envelope.execution_id,
+        a09.envelope.execution_id,
+    }
+    if len(fixture_ids) != 4:
+        raise ProbeFailure("A00/A02/A03/A09 must use four distinct signed execution authorities")
+
+    sentinel, cleanup_sentinel = _host_sentinel_create(uuid.uuid4().hex)
     cell = CellHostClient(cell_url, cell_key)
     pgl = RealPGLClient(pgl_url, pgl_key)
+    passed: list[str] = []
     try:
         print("=" * 72)
         print("VEKLOM CROSS-SYSTEM PREDATOR — REAL BOUNDARIES ONLY")
         print("=" * 72)
         print("[PRECHECK]", json.dumps(cell.health(), sort_keys=True))
 
-        # A00 — one real isolated cell followed by one real target mutation.
+        print("\n[A03] independently signed expired authority")
+        a03_response = cell.run_cell(
+            authority=a03_raw,
+            image=image,
+            intent=intent.model_dump(mode="json"),
+            sentinel=sentinel,
+        )
+        expect_rejected(a03_response, test_id="A03 expired authority", allowed={403}, detail_contains="expired")
+        passed.append("A03")
+
+        print("\n[A09] immutable runtime artifact substitution with fresh authority")
+        wrong_image = image.rsplit("@sha256:", 1)[0] + "@sha256:" + ("0" * 64)
+        a09_response = cell.run_cell(
+            authority=a09_raw,
+            image=wrong_image,
+            intent=intent.model_dump(mode="json"),
+            sentinel=sentinel,
+        )
+        expect_rejected(
+            a09_response,
+            test_id="A09 image digest substitution",
+            allowed={409},
+            detail_contains="runtime image does not match",
+        )
+        passed.append("A09")
+
         print("\n[A00] positive governed chain")
-        run = cell.run_cell(authority=authority_raw, image=image, intent=intent.model_dump(mode="json"), sentinel=sentinel)
-        if run.status_code != 200:
-            raise ProbeFailure(f"A00 cell run failed: HTTP {run.status_code}: {run.text[:1000]}")
-        cell_result = run.json()
-        if cell_result.get("exit_code") != 0 or cell_result.get("teardown_confirmed") is not True:
-            raise ProbeFailure("A00 cell did not complete with confirmed teardown")
-        witness = validate_witness(str(cell_result.get("stderr", "")))
+        cell_result, witness = require_successful_cell(
+            cell,
+            authority_raw=a00_raw,
+            image=image,
+            intent=intent,
+            sentinel=sentinel,
+            test_id="A00",
+            validate_hostile_witness=True,
+        )
+        assert witness is not None
         cell_id = cell_result.get("cell_id")
         if not isinstance(cell_id, str) or not cell_id:
             raise ProbeFailure("A00 cell_id missing")
 
-        effect = cell.execute_effect(authority=authority_raw, intent=intent.model_dump(mode="json"))
+        effect = cell.execute_effect(authority=a00_raw, intent=intent.model_dump(mode="json"))
         if effect.status_code != 200:
             raise ProbeFailure(f"A00 target consequence failed: HTTP {effect.status_code}: {effect.text[:1000]}")
         target = effect.json()
@@ -247,45 +391,75 @@ def main() -> int:
         if not isinstance(before_sha, str) or not isinstance(after_sha, str) or before_sha == after_sha:
             raise ProbeFailure("A00 target before/after state is not a confirmed mutation")
         print(f"[PASS] A00 target state {before_sha} -> {after_sha}")
+        passed.append("A00")
 
-        # A10 — exact authority/effect replay must be durably fenced.
-        replay = cell.execute_effect(authority=authority_raw, intent=intent.model_dump(mode="json"))
-        expect_rejected(replay, test_id="A10 replay", allowed={409})
+        replay = cell.execute_effect(authority=a00_raw, intent=intent.model_dump(mode="json"))
+        expect_rejected(replay, test_id="A10 durable effect replay", allowed={409}, detail_contains="already consumed")
+        passed.append("A10")
 
-        # A01 — widening capability invalidates the CAPPO signature before execution.
-        a01 = copy.deepcopy(authority_raw)
+        a01 = copy.deepcopy(a00_raw)
         a01["envelope"]["capability_id"] = "admin-action"
-        expect_rejected(cell.run_cell(authority=a01, image=image, intent=intent.model_dump(mode="json"), sentinel=sentinel), test_id="A01 capability widening", allowed={403})
+        expect_rejected(
+            cell.run_cell(authority=a01, image=image, intent=intent.model_dump(mode="json"), sentinel=sentinel),
+            test_id="A01 capability widening",
+            allowed={403},
+            detail_contains="signature",
+        )
+        passed.append("A01")
 
-        # A04 — identity substitution invalidates signed lineage.
-        a04 = copy.deepcopy(authority_raw)
+        a04 = copy.deepcopy(a00_raw)
         a04["envelope"]["subject_id"] = "substituted-principal"
-        expect_rejected(cell.run_cell(authority=a04, image=image, intent=intent.model_dump(mode="json"), sentinel=sentinel), test_id="A04 identity substitution", allowed={403})
+        expect_rejected(
+            cell.run_cell(authority=a04, image=image, intent=intent.model_dump(mode="json"), sentinel=sentinel),
+            test_id="A04 identity substitution",
+            allowed={403},
+            detail_contains="signature",
+        )
+        passed.append("A04")
 
-        # A02 — target/resource mutation keeps signed authority intact, so effect digest check must reject it.
-        a02_intent = intent.model_dump(mode="json")
-        a02_intent["path"] = "unauthorized/" + str(a02_intent["path"])
-        expect_rejected(cell.execute_effect(authority=authority_raw, intent=a02_intent), test_id="A02 resource widening", allowed={409})
+        a06 = copy.deepcopy(a00_raw)
+        a06["envelope"]["tenant_id"] = "substituted-tenant"
+        expect_rejected(
+            cell.run_cell(authority=a06, image=image, intent=intent.model_dump(mode="json"), sentinel=sentinel),
+            test_id="A06 tenant substitution",
+            allowed={403},
+            detail_contains="signature",
+        )
+        passed.append("A06")
 
-        # A09 — immutable runtime measurement cannot be substituted under a valid signature.
-        a09_image = image.rsplit("@sha256:", 1)[0] + "@sha256:" + ("0" * 64)
-        # New authority would be required to consume cell_run again.  We attack the signed artifact
-        # binding here with the already-consumed lease; either replay fencing or artifact mismatch is
-        # governed rejection.  A dedicated fresh fixture is required before calling this A09 sealed.
-        a09 = cell.run_cell(authority=authority_raw, image=a09_image, intent=intent.model_dump(mode="json"), sentinel=sentinel)
-        expect_rejected(a09, test_id="A09 image digest substitution", allowed={409})
+        print("\n[A02] fresh authority, successful cell, then resource widening at effect boundary")
+        a02_cell, _ = require_successful_cell(
+            cell,
+            authority_raw=a02_raw,
+            image=image,
+            intent=intent,
+            sentinel=sentinel,
+            test_id="A02 setup",
+        )
+        if not a02_cell.get("cell_id"):
+            raise ProbeFailure("A02 setup did not return a cell id")
+        widened = intent.model_dump(mode="json")
+        widened["path"] = "unauthorized/" + str(widened["path"])
+        a02_response = cell.execute_effect(authority=a02_raw, intent=widened)
+        expect_rejected(
+            a02_response,
+            test_id="A02 resource widening",
+            allowed={409},
+            detail_contains="does not match successful cell output",
+        )
+        passed.append("A02")
 
         composition_details = {
             "schema_version": "veklom.composition_consequence.v1",
-            "execution_id": authority.envelope.execution_id,
-            "grant_id": authority.envelope.grant_id,
-            "origin_identity": authority.envelope.subject_id,
-            "tenant_id": authority.envelope.tenant_id,
-            "workspace_id": authority.envelope.workspace_id,
-            "authority_digest": authority_digest(authority),
-            "capability_id": authority.envelope.capability_id,
-            "semantic_intent_digest": authority.envelope.semantic_intent_digest,
-            "runtime_image_digest": authority.envelope.runtime_image_digest,
+            "execution_id": a00.envelope.execution_id,
+            "grant_id": a00.envelope.grant_id,
+            "origin_identity": a00.envelope.subject_id,
+            "tenant_id": a00.envelope.tenant_id,
+            "workspace_id": a00.envelope.workspace_id,
+            "authority_digest": authority_digest(a00),
+            "capability_id": a00.envelope.capability_id,
+            "semantic_intent_digest": a00.envelope.semantic_intent_digest,
+            "runtime_image_digest": a00.envelope.runtime_image_digest,
             "cell_id": cell_id,
             "isolation_class": cell_result.get("isolation_class"),
             "teardown_confirmed": True,
@@ -308,16 +482,17 @@ def main() -> int:
         pgl_witness = pgl.persist_and_verify(
             agent_id=pgl_agent,
             actor="lockerphycer-predator",
-            execution_id=authority.envelope.execution_id,
-            idempotency_key=f"composition:{authority.envelope.execution_id}",
+            execution_id=a00.envelope.execution_id,
+            idempotency_key=f"composition:{a00.envelope.execution_id}",
             details=composition_details,
         )
         print("[PASS] A17", json.dumps(pgl_witness.__dict__, sort_keys=True))
+        passed.append("A17")
 
         evidence = {
             "status": "VERIFIED_LOCAL_CANDIDATE",
-            "execution_id": authority.envelope.execution_id,
-            "authority_digest": authority_digest(authority),
+            "execution_id": a00.envelope.execution_id,
+            "authority_digest": authority_digest(a00),
             "cell_id": cell_id,
             "target_before": before_sha,
             "target_after": after_sha,
@@ -328,8 +503,8 @@ def main() -> int:
             "pgl_chain_verified": pgl_witness.ledger_verification,
             "teardown_confirmed": True,
             "credential_revoked": True,
-            "tests": ["A00", "A01", "A02", "A04", "A09-partial", "A10", "A17"],
-            "note": "A09 requires a fresh independently signed fixture before it may be promoted from partial.",
+            "tests": passed,
+            "proof_boundary": "This artifact is a candidate until the raw run and substrate facts are independently reviewed.",
         }
         output = Path(os.environ.get("PREDATOR_EVIDENCE_OUT", "predator_composition_evidence.json"))
         output.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8")
