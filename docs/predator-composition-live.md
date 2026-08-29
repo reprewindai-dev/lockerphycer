@@ -101,6 +101,12 @@ A17 passes only if all of the following happen through the real PGL HTTP API:
 
 Any missing service, malformed response, readback mismatch, or unverified chain is a hard failure. `RealPGLClient` has no mock fallback.
 
+## Self-hosted substrate discovery
+
+The branch contains a secret-safe self-hosted workflow, `.github/workflows/predator-self-hosted-preflight.yml`, and `scripts/self_hosted_predator_preflight.py`. The preflight reports only host/runtime capability facts and whether required configuration variables are present; it never prints secret values.
+
+A self-hosted run may establish that a reachable runner has WSL/Podman, KVM/Firecracker availability, and local service reachability. It is discovery evidence only. It does not substitute for the live Predator execution.
+
 ## Run
 
 From the repository root after the cell host and PGL are healthy:
