@@ -20,4 +20,4 @@ jobs:
       - name: Compile Firecracker guest agent
         run: cargo check --manifest-path microvm_guest/Cargo.toml
       - name: Test
-        run: pytest -q
+        run: python -m pytest -q
