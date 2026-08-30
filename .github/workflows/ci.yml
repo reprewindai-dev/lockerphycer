@@ -21,5 +21,5 @@ jobs:
         run: cargo check --manifest-path microvm_guest/Cargo.toml
       - name: Test
         env:
-          SECRET_KEY: ci-test-only-not-a-secret
+          SECRET_KEY: ci-test-only-key-not-secret-000000000000
         run: python -m pytest -q
