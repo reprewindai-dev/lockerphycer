@@ -20,4 +20,6 @@ jobs:
       - name: Compile Firecracker guest agent
         run: cargo check --manifest-path microvm_guest/Cargo.toml
       - name: Test
+        env:
+          SECRET_KEY: ci-test-only-not-a-secret
         run: python -m pytest -q
