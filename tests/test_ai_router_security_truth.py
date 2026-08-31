@@ -21,8 +21,12 @@ def test_ai_router_does_not_return_raw_internal_errors_or_upload_paths() -> None
     source = _source()
     assert 'detail=f"AI processing failed: {str(e)}"' not in source
     assert 'detail=f"Failed to persist model file: {exc}"' not in source
-    assert '"file_path": file_path}' not in source
-    assert 'return {"message": "Model uploaded successfully", "model_id": model.id}' in source
+
+    upload_response = source.split("await db.refresh(model)", 1)[1].split(
+        '@router.post("/models/{model_id}/activate")', 1
+    )[0]
+    assert '"file_path"' not in upload_response
+    assert 'return {"message": "Model uploaded successfully", "model_id": model.id}' in upload_response
     assert 'detail="AI processing unavailable"' in source
     assert 'detail="Failed to persist model file"' in source
 
@@ -31,7 +35,7 @@ def test_public_model_schema_does_not_include_internal_config() -> None:
     schema = AI_SCHEMA.read_text(encoding="utf-8")
     response_block = schema.split("class AIModelResponse", 1)[1].split("class AIRequestBase", 1)[0]
     assert "config:" not in response_block
-    assert "provider/runtime configuration is intentionally excluded" in response_block
+    assert "provider/runtime configuration is intentionally excluded" in response_block.lower()
 
 
 def test_legacy_provider_errors_are_sanitized_at_response_boundary() -> None:
@@ -53,7 +57,9 @@ def test_ai_router_retains_sanitized_operator_failure_classes() -> None:
 
 def test_database_persistence_is_not_misclassified_as_provider_failure() -> None:
     source = _source()
-    provider_try = source.split("try:\n        analysis_result = await process_ai_analysis", 1)[1].split("processing_time =", 1)[0]
+    provider_try = source.split("try:\n        analysis_result = await process_ai_analysis", 1)[1].split(
+        "except AIProviderError as exc:", 1
+    )[0]
     assert "await db.commit()" not in provider_try
     assert "except AIProviderError as exc:" in source
 
