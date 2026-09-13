@@ -353,3 +353,47 @@ async def get_current_user_info(current_user: User = Depends(resolve_current_use
         "logout": {"href": "/api/v1/auth/logout", "method": "POST"},
     }
     return UserResponse(**payload)
+
+class GitHubExchangeRequest(BaseModel):
+    github_username: str
+
+@router.post("/github/exchange")
+async def github_exchange(
+    payload: GitHubExchangeRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    normalized_email = f"{payload.github_username}@github.veklom.local"
+    user = (await db.execute(select(User).where(User.email == normalized_email))).scalars().first()
+    if not user:
+        user = User(
+            email=normalized_email,
+            username=payload.github_username,
+            full_name=payload.github_username,
+            hashed_password="github_oauth_no_password",
+            is_active=True,
+            is_verified=True,
+            role="user"
+        )
+        db.add(user)
+        await db.flush()
+        await db.refresh(user)
+
+    ip_address, user_agent = _request_metadata(request)
+    session = UserSession(
+        user_id=user.id,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        expires_at=datetime.utcnow() + timedelta(minutes=settings.SESSION_TIMEOUT_MINUTES)
+    )
+    db.add(session)
+    await db.flush()
+    await db.refresh(session)
+    
+    access_token = create_access_token(
+        data={"sub": str(user.id), "session_id": str(session.id)},
+        expires_delta=timedelta(minutes=settings.SESSION_TIMEOUT_MINUTES)
+    )
+    
+    await db.commit()
+    return {"access_token": access_token, "token_type": "bearer", "user": _user_response(user)}
