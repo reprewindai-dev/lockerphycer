@@ -8,6 +8,7 @@ def _set_test_env():
     os.environ.setdefault("SECRET_KEY", "test-secret-key-test-secret-key-test-1234")
     os.environ.setdefault("ENVIRONMENT", "development")
     os.environ.setdefault("DEBUG", "true")
+    os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test_lockerphycer.db"
 
 
 def test_app_imports():
@@ -34,6 +35,7 @@ def test_auth_session_lifecycle():
     from fastapi.testclient import TestClient
 
     from apps.api.main import app
+    from core.security.auth import create_email_verification_token
 
     email = f"user-{uuid.uuid4()}@example.com"
     password = "CorrectHorseBatteryStaple1"
@@ -48,11 +50,27 @@ def test_auth_session_lifecycle():
                 "password": password,
             },
         )
-        assert register.status_code == 200
+        assert register.status_code == 201
+        assert register.json()["status"] == "inactive"
+
+        blocked = client.post(
+            "/api/v1/auth/login",
+            json={"email": email, "password": password},
+        )
+        assert blocked.status_code == 403
+        assert blocked.json()["detail"] == "Email verification required"
+
+        verify = client.post(
+            "/api/v1/auth/email-verification/confirm",
+            json={"token": create_email_verification_token(email)},
+        )
+        assert verify.status_code == 200
+        assert verify.json()["verified"] is True
 
         login = client.post(
             "/api/v1/auth/login",
             json={"email": email, "password": password},
+            headers={"user-agent": "pytest-auth-client", "x-forwarded-for": "203.0.113.7"},
         )
         assert login.status_code == 200
         tokens = login.json()
@@ -164,22 +182,17 @@ def test_intrusion_detection_system_blocks_malicious_requests():
     from apps.api.main import app
 
     with TestClient(app) as client:
-        # SQL Injection attempt
         response = client.get("/health?query=union select * from users")
         assert response.status_code == 400
         assert "Security violation detected" in response.json()["error"]["message"]
 
-        # Path Traversal attempt
         response = client.get("/health?path=../../etc/passwd")
         assert response.status_code == 400
         assert "Security violation detected" in response.json()["error"]["message"]
 
-        # Command Injection attempt
-        response = client.get("/health?cmd=; rm -rf /")
+        response = client.get("/health?cmd=; echo test")
         assert response.status_code == 400
         assert "Security violation detected" in response.json()["error"]["message"]
 
-        # Clean request should pass
         response = client.get("/health")
         assert response.status_code == 200
-

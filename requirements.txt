@@ -18,3 +18,4 @@ pyotp==2.9.0
 qrcode
 aiofiles==24.1.0
 cryptography>=50,<51
+resend==2.43.0

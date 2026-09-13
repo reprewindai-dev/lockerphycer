@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     PASSWORD_MIN_LENGTH: int = 8
     MAX_FAILED_LOGIN_ATTEMPTS: int = 10
     ACCOUNT_LOCKOUT_DURATION_MINUTES: int = 30
+    EMAIL_VERIFICATION_EXPIRE_MINUTES: int = 30
+    PASSWORD_RESET_EXPIRE_MINUTES: int = 20
+
+    RESEND_API_KEY: str = ""
+    EMAIL_FROM: str = "Veklom <noreply@veklom.com>"
 
     DATABASE_URL: str = "sqlite+aiosqlite:///./lockerphycer.db"
     REDIS_URL: str = "redis://localhost:6379/0"

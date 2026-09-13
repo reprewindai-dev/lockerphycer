@@ -26,18 +26,56 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    expires = datetime.utcnow() + (expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
+def _create_token(data: dict, token_type: str, expires_delta: timedelta) -> str:
+    now = datetime.utcnow()
     payload = data.copy()
-    payload.update({"exp": expires, "iat": datetime.utcnow(), "jti": str(uuid4()), "token_type": "access"})
+    payload.update(
+        {
+            "exp": now + expires_delta,
+            "iat": now,
+            "jti": str(uuid4()),
+            "token_type": token_type,
+        }
+    )
     return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
+
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    return _create_token(
+        data,
+        "access",
+        expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
 
 
 def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    expires = datetime.utcnow() + (expires_delta or timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS))
-    payload = data.copy()
-    payload.update({"exp": expires, "iat": datetime.utcnow(), "jti": str(uuid4()), "token_type": "refresh"})
-    return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
+    return _create_token(
+        data,
+        "refresh",
+        expires_delta or timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+    )
+
+
+def create_email_verification_token(email: str) -> str:
+    return _create_token(
+        {"sub": email},
+        "email_verification",
+        timedelta(minutes=settings.EMAIL_VERIFICATION_EXPIRE_MINUTES),
+    )
+
+
+def create_password_reset_token(email: str, credential_version: str) -> str:
+    """Create a reset token bound to the current password hash version.
+
+    The credential-version binding makes a successful reset invalidate every
+    outstanding reset token for the previous password without storing reset
+    tokens in plaintext.
+    """
+    return _create_token(
+        {"sub": email, "credential_version": credential_version},
+        "password_reset",
+        timedelta(minutes=settings.PASSWORD_RESET_EXPIRE_MINUTES),
+    )
 
 
 def verify_token(token: str, expected_type: str | None = None) -> dict:
@@ -115,4 +153,3 @@ def verify_csrf_token(token: str, expected_token: str) -> bool:
     """Verify a CSRF token using secure hmac comparison."""
     import hmac
     return hmac.compare_digest(token, expected_token)
-
