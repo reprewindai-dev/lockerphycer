@@ -354,6 +354,7 @@ async def get_current_user_info(current_user: User = Depends(resolve_current_use
     }
     return UserResponse(**payload)
 
+from pydantic import BaseModel
 class GitHubExchangeRequest(BaseModel):
     github_username: str
 
