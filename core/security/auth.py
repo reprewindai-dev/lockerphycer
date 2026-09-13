@@ -29,6 +29,12 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def _create_token(data: dict, token_type: str, expires_delta: timedelta) -> str:
     now = datetime.utcnow()
     payload = data.copy()
+    # Workspace identity is a security boundary consumed by CAPPO. Preserve an
+    # explicitly resolved workspace claim supplied by LockerPhycer callers;
+    # only fall back to the legacy "default" claim when no workspace identity
+    # has been resolved yet (for example before first-time onboarding).
+    if not any(payload.get(key) for key in ("workspace_id", "workspace", "tenant_id")):
+        payload["workspace"] = "default"
     payload.update(
         {
             "exp": now + expires_delta,
@@ -37,7 +43,6 @@ def _create_token(data: dict, token_type: str, expires_delta: timedelta) -> str:
             "token_type": token_type,
             "iss": "veklom-lockerphycer",
             "aud": "veklom-cappo",
-            "workspace": "default",
         }
     )
     return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
