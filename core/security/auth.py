@@ -34,7 +34,10 @@ def _create_token(data: dict, token_type: str, expires_delta: timedelta) -> str:
             "exp": now + expires_delta,
             "iat": now,
             "jti": str(uuid4()),
-            "token_type": token_type, "iss": "veklom-lockerphycer", "aud": "veklom-cappo",
+            "token_type": token_type,
+            "iss": "veklom-lockerphycer",
+            "aud": "veklom-cappo",
+            "workspace": "default",
         }
     )
     return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
