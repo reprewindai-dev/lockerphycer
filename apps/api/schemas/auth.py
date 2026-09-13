@@ -1,32 +1,35 @@
-"""
-Authentication Schemas
-"""
+"""Authentication Schemas."""
+
+from datetime import datetime
+from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, EmailStr, Field
-from typing import Optional, Dict, Any
-from datetime import datetime
 
 
 class UserBase(BaseModel):
-    """Base user schema"""
+    """Base user schema."""
+
     email: EmailStr
     username: str = Field(..., min_length=3, max_length=50)
     full_name: Optional[str] = None
 
 
 class UserCreate(UserBase):
-    """User creation schema"""
+    """User creation schema."""
+
     password: str = Field(..., min_length=8, max_length=128)
 
 
 class UserUpdate(BaseModel):
-    """User update schema"""
+    """User update schema."""
+
     full_name: Optional[str] = None
     email: Optional[EmailStr] = None
 
 
 class UserResponse(UserBase):
-    """User response schema"""
+    """User response schema."""
+
     id: str
     role: str
     status: str
@@ -35,24 +38,25 @@ class UserResponse(UserBase):
     updated_at: Optional[datetime] = None
     last_login: Optional[datetime] = None
     links: Optional[Dict[str, Any]] = Field(default=None, alias="_links")
-    
+
     class Config:
         from_attributes = True
 
 
 class LoginRequest(BaseModel):
-    """Login request schema"""
+    """Login request schema."""
+
     email: EmailStr
     password: str
 
 
 class RegisterRequest(UserCreate):
-    """Registration request schema"""
-    pass
+    """Registration request schema."""
 
 
 class TokenResponse(BaseModel):
-    """Token response schema"""
+    """Token response schema."""
+
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
@@ -60,34 +64,52 @@ class TokenResponse(BaseModel):
 
 
 class LoginResponse(TokenResponse):
-    """Login response schema"""
+    """Login response schema."""
+
     user: UserResponse
     links: Optional[Dict[str, Any]] = Field(default=None, alias="_links")
 
 
+class EmailVerificationConfirm(BaseModel):
+    """Confirm a signed email-verification token."""
+
+    token: str
+
+
+class EmailVerificationRequest(BaseModel):
+    """Request another verification message without disclosing account existence."""
+
+    email: EmailStr
+
+
 class PasswordChange(BaseModel):
-    """Password change schema"""
+    """Password change schema."""
+
     current_password: str
     new_password: str = Field(..., min_length=8, max_length=128)
 
 
 class PasswordReset(BaseModel):
-    """Password reset schema"""
+    """Password reset request schema."""
+
     email: EmailStr
 
 
 class PasswordResetConfirm(BaseModel):
-    """Password reset confirmation schema"""
+    """Password reset confirmation schema."""
+
     token: str
     new_password: str = Field(..., min_length=8, max_length=128)
 
 
 class MFASetup(BaseModel):
-    """MFA setup schema"""
+    """MFA setup schema."""
+
     secret: str
     qr_code: str
 
 
 class MFAVerify(BaseModel):
-    """MFA verification schema"""
+    """MFA verification schema."""
+
     code: str
