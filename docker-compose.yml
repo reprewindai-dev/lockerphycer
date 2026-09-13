@@ -16,8 +16,8 @@ services:
         condition: service_healthy
       lockerphycer-redis:
         condition: service_healthy
-    expose:
-      - "8092"
+    ports:
+      - "8092:8092"
     healthcheck:
       test:
         [
@@ -50,7 +50,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    expose:
+    ports:
       - "5432"
 
   lockerphycer-redis:
@@ -66,7 +66,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    expose:
+    ports:
       - "6379"
 
 networks:
@@ -78,3 +78,4 @@ volumes:
   lockerphycer_models:
   lockerphycer_pg_data:
   lockerphycer_redis_data:
+

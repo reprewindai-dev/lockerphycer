@@ -80,7 +80,7 @@ def create_password_reset_token(email: str, credential_version: str) -> str:
 
 def verify_token(token: str, expected_type: str | None = None) -> dict:
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"], audience="veklom-cappo")
         if expected_type and payload.get("token_type") != expected_type:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
         return payload

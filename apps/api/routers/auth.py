@@ -364,7 +364,7 @@ async def github_exchange(
     request: Request,
     db: AsyncSession = Depends(get_db)
 ):
-    normalized_email = f"{payload.github_username}@github.veklom.local"
+    normalized_email = f"{payload.github_username}@machine.veklom.com"
     user = (await db.execute(select(User).where(User.email == normalized_email))).scalars().first()
     if not user:
         user = User(
@@ -372,8 +372,6 @@ async def github_exchange(
             username=payload.github_username,
             full_name=payload.github_username,
             hashed_password="github_oauth_no_password",
-            is_active=True,
-            is_verified=True,
             role="user"
         )
         db.add(user)
@@ -381,20 +379,31 @@ async def github_exchange(
         await db.refresh(user)
 
     ip_address, user_agent = _request_metadata(request)
-    session = UserSession(
-        user_id=user.id,
-        ip_address=ip_address,
-        user_agent=user_agent,
-        expires_at=datetime.utcnow() + timedelta(minutes=settings.SESSION_TIMEOUT_MINUTES)
-    )
-    db.add(session)
-    await db.flush()
-    await db.refresh(session)
+    now = datetime.utcnow()
+    
+    import uuid
+    session_id = str(uuid.uuid4())
     
     access_token = create_access_token(
-        data={"sub": str(user.id), "session_id": str(session.id)},
-        expires_delta=timedelta(minutes=settings.SESSION_TIMEOUT_MINUTES)
+        data={"sub": user.email, "session_id": session_id},
+        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
     
+    refresh_token = create_refresh_token(
+        data={"sub": user.email, "session_id": session_id},
+        expires_delta=timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    )
+    
+    session = UserSession(
+        id=session_id,
+        user_id=user.id,
+        session_token=access_token,
+        refresh_token=refresh_token,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        expires_at=now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    )
+    db.add(session)
     await db.commit()
+    
     return {"access_token": access_token, "token_type": "bearer", "user": _user_response(user)}
