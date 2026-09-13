@@ -1,17 +1,25 @@
 """Workspace management routes."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.config.settings import settings
 from core.database.database import get_db
-from core.security.auth import get_current_user, require_admin
-from db.models import MarketplaceListing, SubscriptionTier, User, Workspace
+from core.security.auth import (
+    bearer,
+    create_access_token,
+    create_refresh_token,
+    get_current_user,
+    require_admin,
+)
+from db.models import MarketplaceListing, SubscriptionTier, User, UserSession, Workspace
 
 router = APIRouter()
 
@@ -30,6 +38,67 @@ def _normalize_slug(value: str) -> str:
     if not normalized:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Workspace slug is empty after normalization")
     return normalized[:180]
+
+
+async def _bind_session_to_workspace(
+    *,
+    db: AsyncSession,
+    user: User,
+    credentials: HTTPAuthorizationCredentials,
+    workspace: Workspace,
+) -> dict[str, str]:
+    """Rotate the authenticated session so CAPPO receives the real workspace claim."""
+
+    session = (
+        await db.execute(
+            select(UserSession).where(
+                UserSession.session_token == credentials.credentials,
+                UserSession.user_id == user.id,
+                UserSession.is_active == True,
+            )
+        )
+    ).scalars().first()
+    if not session:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session revoked or expired")
+
+    claims = {"sub": user.email, "workspace_id": workspace.id}
+    access_token = create_access_token(claims)
+    refresh_token = create_refresh_token(claims)
+    now = datetime.utcnow()
+    session.session_token = access_token
+    session.refresh_token = refresh_token
+    session.last_accessed = now
+    session.expires_at = now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    await db.commit()
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+    }
+
+
+async def _workspace_payload(
+    *,
+    db: AsyncSession,
+    user: User,
+    credentials: HTTPAuthorizationCredentials,
+    workspace: Workspace,
+    existing: bool,
+) -> dict:
+    tokens = await _bind_session_to_workspace(
+        db=db,
+        user=user,
+        credentials=credentials,
+        workspace=workspace,
+    )
+    return {
+        "id": workspace.id,
+        "name": workspace.name,
+        "slug": workspace.slug,
+        "tier": workspace.tier.value if workspace.tier else "free",
+        "existing": existing,
+        **tokens,
+    }
 
 
 @router.get("/")
@@ -58,13 +127,14 @@ async def list_workspaces(
 async def create_workspace(
     payload: WorkspaceCreateRequest,
     current_user: User = Depends(get_current_user),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer),
     db: AsyncSession = Depends(get_db),
 ):
-    """Create or return the authenticated user's onboarding workspace.
+    """Create/return the user's workspace and rotate the session onto that identity.
 
-    Workspace creation is an identity operation, not an administrator-only
-    control-plane mutation. The route is deliberately idempotent for the
-    authenticated owner so a machine or browser may safely retry onboarding.
+    Authentication establishes the operator. This step establishes the workspace
+    context CAPPO later consumes. It remains separate from consequence authority:
+    the returned token carries workspace identity but grants no capability mount.
     """
 
     existing_result = await db.execute(
@@ -75,13 +145,13 @@ async def create_workspace(
     )
     existing = existing_result.scalars().first()
     if existing:
-        return {
-            "id": existing.id,
-            "name": existing.name,
-            "slug": existing.slug,
-            "tier": existing.tier.value if existing.tier else "free",
-            "existing": True,
-        }
+        return await _workspace_payload(
+            db=db,
+            user=current_user,
+            credentials=credentials,
+            workspace=existing,
+            existing=True,
+        )
 
     slug = _normalize_slug(payload.slug or payload.name)
     slug_owner = (await db.execute(select(Workspace).where(Workspace.slug == slug))).scalars().first()
@@ -96,15 +166,15 @@ async def create_workspace(
         tier=SubscriptionTier.FREE,
     )
     db.add(ws)
-    await db.commit()
+    await db.flush()
     await db.refresh(ws)
-    return {
-        "id": ws.id,
-        "name": ws.name,
-        "slug": ws.slug,
-        "tier": ws.tier.value,
-        "existing": False,
-    }
+    return await _workspace_payload(
+        db=db,
+        user=current_user,
+        credentials=credentials,
+        workspace=ws,
+        existing=False,
+    )
 
 
 @router.get("/{workspace_id}")
