@@ -6,6 +6,7 @@ def _set_test_env():
     os.environ.setdefault("SECRET_KEY", "test-secret-key-test-secret-key-test-1234")
     os.environ.setdefault("ENVIRONMENT", "development")
     os.environ.setdefault("DEBUG", "true")
+    os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test_lockerphycer.db"
 
 
 def test_password_reset_token_is_single_use_and_revokes_sessions():
