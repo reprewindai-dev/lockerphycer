@@ -345,8 +345,17 @@ async def resolve_current_user(
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_current_user_info(current_user: User = Depends(resolve_current_user)):
+async def get_current_user_info(
+    current_user: User = Depends(resolve_current_user),
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
     payload = UserResponse.model_validate(current_user).model_dump(mode="json")
+    token_payload = verify_token(credentials.credentials, expected_type="access")
+    workspace_id = token_payload.get("workspace_id") or token_payload.get("tenant_id")
+    if not workspace_id:
+        legacy_workspace = token_payload.get("workspace")
+        workspace_id = legacy_workspace if legacy_workspace and legacy_workspace != "default" else None
+    payload["workspace_id"] = workspace_id
     payload["_links"] = {
         "self": {"href": "/api/v1/auth/me", "method": "GET"},
         "workspace": {"href": "/api/v1/workspace", "method": "GET"},
