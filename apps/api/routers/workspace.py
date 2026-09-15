@@ -5,6 +5,7 @@ from typing import Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
@@ -101,6 +102,7 @@ async def _workspace_payload(
     }
 
 
+@router.get("")
 @router.get("/")
 async def list_workspaces(
     skip: int = Query(0, ge=0),
@@ -123,6 +125,7 @@ async def list_workspaces(
     ]
 
 
+@router.post("")
 @router.post("/")
 async def create_workspace(
     payload: WorkspaceCreateRequest,
@@ -175,6 +178,35 @@ async def create_workspace(
         workspace=ws,
         existing=False,
     )
+
+
+@router.get("/me")
+async def get_my_workspace(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Workspace)
+        .where(
+            Workspace.owner_id == current_user.email,
+            Workspace.is_active == True,
+        )
+        .order_by(Workspace.created_at.asc())
+    )
+    workspace = result.scalars().first()
+    if not workspace:
+        return JSONResponse(
+            status_code=404,
+            content={"detail": "No workspace bound to this operator"},
+        )
+    return {
+        "id": workspace.id,
+        "name": workspace.name,
+        "slug": workspace.slug,
+        "tier": workspace.tier.value if workspace.tier else "free",
+        "is_active": workspace.is_active,
+        "created_at": workspace.created_at.isoformat() if workspace.created_at else None,
+    }
 
 
 @router.get("/{workspace_id}")

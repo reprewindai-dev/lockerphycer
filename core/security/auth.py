@@ -15,7 +15,7 @@ from core.config.settings import settings
 from core.database.database import get_db
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-bearer = HTTPBearer(auto_error=True)
+bearer = HTTPBearer(auto_error=False)
 
 
 def get_password_hash(password: str) -> str:
@@ -97,11 +97,13 @@ def verify_token(token: str, expected_type: str | None = None) -> dict:
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
     db: AsyncSession = Depends(get_db),
 ):
     from db.models import User, UserSession, UserStatus
 
+    if credentials is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     payload = verify_token(credentials.credentials, expected_type="access")
     email = payload.get("sub")
     if not email:

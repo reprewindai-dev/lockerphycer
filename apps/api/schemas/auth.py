@@ -31,6 +31,7 @@ class UserResponse(UserBase):
     """User response schema."""
 
     id: str
+    workspace_id: Optional[str] = None
     role: str
     status: str
     mfa_enabled: bool
