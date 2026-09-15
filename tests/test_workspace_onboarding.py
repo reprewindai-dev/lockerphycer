@@ -1,7 +1,7 @@
 import asyncio
 import os
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 
 def _set_test_env():
@@ -54,7 +54,7 @@ def _seed_user(*, admin: bool = False, workspace: bool = False):
                     refresh_token=refresh_token,
                     ip_address="127.0.0.1",
                     user_agent="pytest",
-                    expires_at=datetime.utcnow() + timedelta(hours=1),
+                    expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=1),
                 )
             )
             if workspace_id:
