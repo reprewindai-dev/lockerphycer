@@ -4,13 +4,13 @@ from datetime import datetime
 from typing import Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database.database import get_db
-from core.security.auth import require_admin
-from db.models import MarketplaceListing, SubscriptionTier, Workspace
+from core.security.auth import get_current_user, require_admin
+from db.models import MarketplaceListing, SubscriptionTier, User, Workspace
 
 router = APIRouter()
 
@@ -74,6 +74,32 @@ async def get_workspace(workspace_id: str, admin_email: str = Depends(require_ad
         "settings": ws.settings,
         "listing_count": listing_count.scalar() or 0,
         "created_at": ws.created_at.isoformat() if ws.created_at else None,
+    }
+
+
+@router.get("/{workspace_id}/vlink-authorization")
+async def authorize_vlink_workspace(
+    workspace_id: str,
+    response: Response,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Confirm that the authenticated session owns an active workspace.
+
+    This deliberately does not inherit the administrative workspace read path:
+    VLink creation needs an owner-bound authorization decision, not permission
+    to inspect arbitrary workspaces.
+    """
+    ws = await db.get(Workspace, workspace_id)
+    if not ws or not ws.is_active:
+        raise HTTPException(status_code=404, detail="Active workspace not found")
+    if ws.owner_id != current_user.email:
+        raise HTTPException(status_code=403, detail="Workspace ownership required")
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Vary"] = "Authorization"
+    return {
+        "authorized": True,
+        "workspace_id": ws.id,
     }
 
 
