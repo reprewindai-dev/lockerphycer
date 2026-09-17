@@ -58,7 +58,7 @@ def test_auth_session_lifecycle():
             json={"email": email, "password": password},
         )
         assert blocked.status_code == 403
-        assert blocked.json()["detail"] == "Email verification required"
+        assert blocked.json()["error"]["message"] == "Email verification required"
 
         verify = client.post(
             "/api/v1/auth/email-verification/confirm",

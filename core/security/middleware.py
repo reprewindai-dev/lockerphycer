@@ -383,7 +383,7 @@ class IntrusionDetectionSystem:
             },
             {
                 "name": "Command Injection",
-                "patterns": ["; rm", "; cat", "| nc", "&& wget"],
+                "patterns": ["; rm", "; cat", "| nc", "&& wget", "; echo"],
                 "severity": "critical"
             }
         ]
