@@ -112,10 +112,18 @@ async def register(user_data: RegisterRequest, db: AsyncSession = Depends(get_db
         status=UserStatus.INACTIVE,
     )
     db.add(user)
+    await db.flush()
+
+    delivered = await _send_verification(user)
+    if not delivered:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Verification delivery unavailable; registration was not created",
+        )
+
     await db.commit()
     await db.refresh(user)
-
-    await _send_verification(user)
     return _user_response(user)
 
 
@@ -345,8 +353,17 @@ async def resolve_current_user(
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_current_user_info(current_user: User = Depends(resolve_current_user)):
+async def get_current_user_info(
+    current_user: User = Depends(resolve_current_user),
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
     payload = UserResponse.model_validate(current_user).model_dump(mode="json")
+    token_payload = verify_token(credentials.credentials, expected_type="access")
+    workspace_id = token_payload.get("workspace_id") or token_payload.get("tenant_id")
+    if not workspace_id:
+        legacy_workspace = token_payload.get("workspace")
+        workspace_id = legacy_workspace if legacy_workspace and legacy_workspace != "default" else None
+    payload["workspace_id"] = workspace_id
     payload["_links"] = {
         "self": {"href": "/api/v1/auth/me", "method": "GET"},
         "workspace": {"href": "/api/v1/workspace", "method": "GET"},
