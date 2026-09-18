@@ -22,4 +22,5 @@ jobs:
       - name: Test
         env:
           SECRET_KEY: ci-test-only-key-not-secret-000000000000
+          PYTHONPATH: .
         run: python -m pytest -q
