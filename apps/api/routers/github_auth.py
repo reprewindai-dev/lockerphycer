@@ -28,6 +28,20 @@ CALLBACK_URL = os.environ.get("GITHUB_CALLBACK_URL", "https://veklom.com/api/v1/
 SESSION_COOKIE = os.environ.get("VEKLOM_SESSION_COOKIE_NAME", "veklom_session")
 
 
+@router.get("/config-status")
+async def github_config_status():
+    present = {
+        "client_id": bool(CLIENT_ID),
+        "client_secret": bool(CLIENT_SECRET),
+        "callback_url": bool(CALLBACK_URL),
+    }
+    return {
+        "configured": all(present.values()),
+        "present": present,
+        "missing": [name for name, configured in present.items() if not configured],
+    }
+
+
 def safe_return_to(value: str | None) -> str:
     if not value:
         return "/os"
