@@ -102,7 +102,7 @@ from apps.api.routers import agents as agents_router
 from apps.api.routers import actors as actors_router
 from apps.api.routers import compiler as compiler_router
 from apps.api.routers import mcp, capi
-from apps.api.routers import mfa
+from apps.api.routers import mfa, github_auth
 from core.utils.logging import setup_logging
 
 
@@ -282,6 +282,7 @@ async def lockersphere_landing():
 # API Routers — source of truth endpoints
 # ---------------------------------------------------------------------------
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
+app.include_router(github_auth.router, prefix="/api/v1/auth/github", tags=["GitHub Authentication"])
 app.include_router(mfa.router, prefix="/api/v1", tags=["MFA"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
 app.include_router(security.router, prefix="/api/v1/security", tags=["Security"])

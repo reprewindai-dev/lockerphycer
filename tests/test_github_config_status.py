@@ -1,6 +1,17 @@
 import asyncio
 
 import apps.api.routers.github_auth as github_auth
+from apps.api.main import app
+
+
+def test_github_config_status_route_is_mounted():
+    routes = {
+        (route.path, method)
+        for route in app.routes
+        for method in getattr(route, "methods", set())
+    }
+
+    assert ("/api/v1/auth/github/config-status", "GET") in routes
 
 
 def test_github_config_status_reports_missing_secret(monkeypatch):
