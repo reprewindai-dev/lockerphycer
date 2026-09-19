@@ -11,6 +11,7 @@ from typing import Dict, Any, List
 import json
 from collections import defaultdict, deque
 import asyncio
+import os
 from datetime import datetime, timedelta
 
 from core.config.settings import settings
@@ -111,22 +112,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
             if not is_excluded:
                 origin = request.headers.get("origin")
                 if origin:
-                    from urllib.parse import urlparse
-                    origin_host = urlparse(origin).netloc
-                    allowed_hosts = [
-                        "lockersphere.com",
-                        "app.lockersphere.com",
-                        "command.lockersphere.com",
-                        "veklom.com",
-                        "app.veklom.com"
-                    ]
-                    if settings.FRONTEND_URL:
-                        allowed_hosts.append(urlparse(settings.FRONTEND_URL).netloc)
-                    host_header = request.headers.get("host")
-                    if host_header:
-                        allowed_hosts.append(host_header)
-                        
-                    if not any(ah in origin_host for ah in allowed_hosts if ah):
+                    if not is_allowed_origin(origin):
                         raise HTTPException(
                             status_code=status.HTTP_403_FORBIDDEN,
                             detail="CSRF validation failed: Origin not allowed"
@@ -455,3 +441,23 @@ class IntrusionDetectionSystem:
 
 # Global IDS instance
 ids = IntrusionDetectionSystem()
+
+def allowed_request_origins() -> set[str]:
+    configured = [
+        value.strip().rstrip("/")
+        for value in os.environ.get("LOCKERPHYCER_CORS_ORIGINS", "").split(",")
+        if value.strip()
+    ]
+    defaults = [
+        settings.FRONTEND_URL.rstrip("/"),
+        "https://veklom.dev",
+        "https://veklom.com",
+        "https://app.veklom.com",
+        "http://localhost:3002",
+        "http://127.0.0.1:3002",
+    ]
+    return {origin for origin in [*configured, *defaults] if origin}
+
+
+def is_allowed_origin(origin: str) -> bool:
+    return origin.rstrip("/") in allowed_request_origins()

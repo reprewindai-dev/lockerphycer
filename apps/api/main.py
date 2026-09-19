@@ -10,9 +10,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse, FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
+import os
 import uvicorn
 import logging
-import os
 from datetime import datetime
 
 from core.config.settings import settings
@@ -153,16 +153,26 @@ try:
 except ImportError:
     pass
 
+_configured_cors_origins = [
+    origin.strip().rstrip("/")
+    for origin in os.environ.get("LOCKERPHYCER_CORS_ORIGINS", "").split(",")
+    if origin.strip()
+]
+
 _cors_origins = (
     ["*"]
     if settings.DEBUG
     else [
         settings.FRONTEND_URL,
+        "https://veklom.dev",
         "https://lockersphere.com",
         "https://app.lockersphere.com",
         "https://command.lockersphere.com",
         "https://veklom.com",
         "https://app.veklom.com",
+        "http://localhost:3002",
+        "http://127.0.0.1:3002",
+        *_configured_cors_origins,
     ]
 )
 
