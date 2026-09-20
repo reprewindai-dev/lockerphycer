@@ -105,7 +105,7 @@ def test_success_cannot_be_recorded_without_consumed_cell_stage(tmp_path):
 
 def test_expired_records_are_pruned_without_reopening_unknown_legacy_rows(tmp_path):
     path = str(tmp_path / "replay.sqlite3")
-    authority = _authority(expires_delta=timedelta(milliseconds=10))
+    authority = _authority(expires_delta=timedelta(seconds=10))
     store = SQLiteReplayStore(path)
     store.consume(authority, "cell_run")
     store.record_cell_success(
@@ -114,7 +114,7 @@ def test_expired_records_are_pruned_without_reopening_unknown_legacy_rows(tmp_pa
         cell_id="cell-expired",
     )
 
-    future = datetime.now(timezone.utc) + timedelta(seconds=1)
+    future = datetime.now(timezone.utc) + timedelta(seconds=15)
     store.prune_expired(future)
     with sqlite3.connect(path) as connection:
         consumed = connection.execute("SELECT COUNT(*) FROM consumed_authority").fetchone()[0]

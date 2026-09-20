@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
@@ -231,6 +231,24 @@ async def get_workspace(
         "listing_count": listing_count.scalar() or 0,
         "created_at": ws.created_at.isoformat() if ws.created_at else None,
     }
+
+
+@router.get("/{workspace_id}/vlink-authorization")
+async def authorize_vlink_workspace(
+    workspace_id: str,
+    response: Response,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Confirm that the authenticated session owns an active workspace."""
+    ws = await db.get(Workspace, workspace_id)
+    if not ws or not ws.is_active:
+        raise HTTPException(status_code=404, detail="Active workspace not found")
+    if ws.owner_id != current_user.email:
+        raise HTTPException(status_code=403, detail="Workspace ownership required")
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Vary"] = "Authorization"
+    return {"authorized": True, "workspace_id": ws.id}
 
 
 @router.put("/{workspace_id}")

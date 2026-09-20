@@ -153,6 +153,7 @@ def test_mutable_image_tag_is_rejected():
         runtime._validate_request(request)
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason="select on pipes not supported on Windows")
 def test_host_output_is_bounded_while_untrusted_process_runs():
     authority, verifier = _signed_authority()
     # /bin/true safely absorbs the cleanup command used after the short-lived
