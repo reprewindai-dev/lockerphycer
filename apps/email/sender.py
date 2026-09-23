@@ -11,7 +11,7 @@ import logging
 import smtplib
 import ssl
 from email.message import EmailMessage
-from email.utils import parseaddr
+from email.utils import parseaddr, make_msgid
 from pathlib import Path
 from typing import Optional
 
@@ -20,6 +20,10 @@ from core.config.settings import settings
 logger = logging.getLogger(__name__)
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
+
+
+class DeliveryIndeterminate(RuntimeError):
+    """Transport may have accepted DATA. Do not automatically fail over."""
 
 
 def _render(template_name: str, variables: dict) -> str:
@@ -56,12 +60,15 @@ def _smtp_send(
     msg["From"] = settings.EMAIL_FROM
     msg["To"] = to
     msg["Subject"] = subject
+    msg["Message-ID"] = make_msgid()
     msg.set_content("This message requires an HTML-capable mail client.")
     msg.add_alternative(html, subtype="html")
 
     context = ssl.create_default_context()
     timeout = settings.SMTP_TIMEOUT_SECONDS
 
+    submitting = False
+    accepted = False
     try:
         if use_ssl:
             smtp = smtplib.SMTP_SSL(host, port, timeout=timeout, context=context)
@@ -75,17 +82,26 @@ def _smtp_send(
                 smtp.ehlo()
             if user:
                 smtp.login(user, password)
+            submitting = True
             refused = smtp.send_message(msg)
+            accepted = not refused
 
         if refused:
-            logger.error("SMTP relay refused recipient(s): %s", sorted(refused))
+            logger.warning("SMTP relay refused recipient")
             return None
 
         # SMTP does not provide a universal provider message ID. Generate a
         # local correlation ID from the Message-ID header if present.
         return msg.get("Message-ID") or f"smtp:{host}:{to}"
+    except (smtplib.SMTPRecipientsRefused, smtplib.SMTPSenderRefused, smtplib.SMTPDataError):
+        # Explicit negative SMTP acknowledgement: safe to try another relay.
+        return None
     except Exception:
-        logger.exception("SMTP delivery attempt failed host=%s", host)
+        if accepted:
+            return msg.get("Message-ID") or f"smtp:{host}:{to}"
+        if submitting:
+            raise DeliveryIndeterminate("SMTP outcome unknown") from None
+        logger.warning("SMTP connection/authentication failed")
         return None
 
 
@@ -136,14 +152,16 @@ def send_welcome(to: str, first_name: str) -> Optional[str]:
 
 def send_verify_email(to: str, first_name: str, verify_url: str) -> Optional[str]:
     html = _render(
-        "verify-email.html", {"FIRST_NAME": first_name, "VERIFY_URL": verify_url}
+        "verify-email.html", {"FIRST_NAME": first_name, "VERIFY_URL": verify_url,
+                              "EXPIRE_MINUTES": settings.EMAIL_VERIFICATION_EXPIRE_MINUTES}
     )
     return _send(to, "Verify your email address", html)
 
 
 def send_password_reset(to: str, first_name: str, reset_url: str) -> Optional[str]:
     html = _render(
-        "password-reset.html", {"FIRST_NAME": first_name, "RESET_URL": reset_url}
+        "password-reset.html", {"FIRST_NAME": first_name, "RESET_URL": reset_url,
+                                "EXPIRE_MINUTES": settings.PASSWORD_RESET_EXPIRE_MINUTES}
     )
     return _send(to, "Reset your password", html)
 

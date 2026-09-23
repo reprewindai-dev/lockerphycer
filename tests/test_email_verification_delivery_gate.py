@@ -9,7 +9,7 @@ def _set_test_env():
     os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test_lockerphycer.db"
 
 
-def test_registration_fails_closed_when_verification_delivery_fails(monkeypatch):
+def test_registration_persists_inactive_identity_when_delivery_is_down(monkeypatch):
     _set_test_env()
 
     from fastapi.testclient import TestClient
@@ -34,14 +34,22 @@ def test_registration_fails_closed_when_verification_delivery_fails(monkeypatch)
             },
         )
 
-    assert response.status_code == 503
+        assert response.status_code == 201
+        denied = client.post('/api/v1/auth/login', json={
+            'email': email, 'password': 'CorrectHorseBatteryStaple1'})
+        assert denied.status_code == 403
 
     async def user_exists():
         async with SessionLocal() as session:
             result = await session.execute(select(User).where(User.email == email))
-            return result.scalars().first() is not None
+            user = result.scalars().one()
+            from db.models import UserStatus
+            from apps.email.outbox import IdentityEmailOutbox
+            queued = (await session.execute(select(IdentityEmailOutbox).where(
+                IdentityEmailOutbox.user_id == user.id))).scalars().one()
+            return user.status == UserStatus.INACTIVE and queued.status == 'QUEUED'
 
-    assert asyncio.run(user_exists()) is False
+    assert asyncio.run(user_exists()) is True
 
 
 async def _false_async():

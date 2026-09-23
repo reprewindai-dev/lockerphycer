@@ -21,6 +21,7 @@ from apps.api.schemas.auth import (
     UserResponse,
 )
 from apps.email.sender import send_password_reset, send_verify_email, send_welcome
+from apps.email.outbox import enqueue_identity_email
 from core.config.settings import settings
 from core.database.database import get_db
 from core.security.auth import (
@@ -114,13 +115,8 @@ async def register(user_data: RegisterRequest, db: AsyncSession = Depends(get_db
     db.add(user)
     await db.flush()
 
-    delivered = await _send_verification(user)
-    if not delivered:
-        await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Verification delivery unavailable; registration was not created",
-        )
+    # Identity and delivery intent commit atomically. No network I/O here.
+    await enqueue_identity_email(db, user, "verification")
 
     await db.commit()
     await db.refresh(user)
@@ -135,9 +131,10 @@ async def resend_verification(
     normalized_email = payload.email.strip().lower()
     user = (await db.execute(select(User).where(User.email == normalized_email))).scalars().first()
     if user and user.status == UserStatus.INACTIVE:
-        await _send_verification(user)
+        await enqueue_identity_email(db, user, "verification")
+        await db.commit()
     # Deliberately generic to avoid account enumeration.
-    return {"message": "If verification is required, a new email has been sent."}
+    return {"message": "If verification is required, an email request has been queued."}
 
 
 @router.post("/email-verification/confirm")
@@ -244,8 +241,9 @@ async def request_password_reset(
     normalized_email = payload.email.strip().lower()
     user = (await db.execute(select(User).where(User.email == normalized_email))).scalars().first()
     if user and user.status != UserStatus.SUSPENDED:
-        await _send_reset(user)
-    return {"message": "If an account exists for that email, a reset link has been sent."}
+        await enqueue_identity_email(db, user, "password_reset")
+        await db.commit()
+    return {"message": "If an eligible account exists, a reset email request has been queued."}
 
 
 @router.post("/password-reset/confirm")
