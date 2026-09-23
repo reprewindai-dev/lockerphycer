@@ -29,8 +29,25 @@ class Settings(BaseSettings):
     EMAIL_VERIFICATION_EXPIRE_MINUTES: int = 30
     PASSWORD_RESET_EXPIRE_MINUTES: int = 20
 
-    RESEND_API_KEY: str = ""
+    # Provider-neutral transactional email configuration.
+    # SMTP is the default transport. Configure a second independent SMTP relay
+    # for automatic failover; neither relay is part of Veklom authority.
+    EMAIL_TRANSPORT: str = "smtp"
     EMAIL_FROM: str = "Veklom <noreply@veklom.com>"
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_TLS: bool = True
+    SMTP_SSL: bool = False
+    SMTP_TIMEOUT_SECONDS: int = 15
+
+    SMTP_FALLBACK_HOST: str = ""
+    SMTP_FALLBACK_PORT: int = 587
+    SMTP_FALLBACK_USER: str = ""
+    SMTP_FALLBACK_PASSWORD: str = ""
+    SMTP_FALLBACK_TLS: bool = True
+    SMTP_FALLBACK_SSL: bool = False
 
     DATABASE_URL: str = "sqlite+aiosqlite:///./lockerphycer.db"
     REDIS_URL: str = "redis://localhost:6379/0"

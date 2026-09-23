@@ -34,6 +34,21 @@ services:
       - lockerphycer_logs:/app/logs
       - lockerphycer_models:/app/models
 
+  lockerphycer-email-outbox:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    command: ["python", "-m", "apps.email.outbox_worker"]
+    networks:
+      - coolify
+    depends_on:
+      lockerphycer-postgres:
+        condition: service_healthy
+      lockerphycer-redis:
+        condition: service_healthy
+    volumes:
+      - lockerphycer_logs:/app/logs
+
   lockerphycer-postgres:
     image: postgres:16-alpine
     restart: unless-stopped

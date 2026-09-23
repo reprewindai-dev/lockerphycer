@@ -21,6 +21,7 @@ from apps.api.schemas.auth import (
     UserResponse,
 )
 from apps.email.sender import send_password_reset, send_verify_email, send_welcome
+from apps.email.outbox import enqueue_identity_email
 from core.config.settings import settings
 from core.database.database import get_db
 from core.security.auth import (
@@ -114,13 +115,8 @@ async def register(user_data: RegisterRequest, db: AsyncSession = Depends(get_db
     db.add(user)
     await db.flush()
 
-    delivered = await _send_verification(user)
-    if not delivered:
-        await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Verification delivery unavailable; registration was not created",
-        )
+    # Identity and delivery intent commit atomically. No network I/O here.
+    await enqueue_identity_email(db, user, "verification")
 
     await db.commit()
     await db.refresh(user)
@@ -135,9 +131,10 @@ async def resend_verification(
     normalized_email = payload.email.strip().lower()
     user = (await db.execute(select(User).where(User.email == normalized_email))).scalars().first()
     if user and user.status == UserStatus.INACTIVE:
-        await _send_verification(user)
+        await enqueue_identity_email(db, user, "verification")
+        await db.commit()
     # Deliberately generic to avoid account enumeration.
-    return {"message": "If verification is required, a new email has been sent."}
+    return {"message": "If verification is required, an email request has been queued."}
 
 
 @router.post("/email-verification/confirm")
@@ -244,8 +241,9 @@ async def request_password_reset(
     normalized_email = payload.email.strip().lower()
     user = (await db.execute(select(User).where(User.email == normalized_email))).scalars().first()
     if user and user.status != UserStatus.SUSPENDED:
-        await _send_reset(user)
-    return {"message": "If an account exists for that email, a reset link has been sent."}
+        await enqueue_identity_email(db, user, "password_reset")
+        await db.commit()
+    return {"message": "If an eligible account exists, a reset email request has been queued."}
 
 
 @router.post("/password-reset/confirm")
@@ -381,46 +379,6 @@ async def github_exchange(
     request: Request,
     db: AsyncSession = Depends(get_db)
 ):
-    normalized_email = f"{payload.github_username}@machine.veklom.com"
-    user = (await db.execute(select(User).where(User.email == normalized_email))).scalars().first()
-    if not user:
-        user = User(
-            email=normalized_email,
-            username=payload.github_username,
-            full_name=payload.github_username,
-            hashed_password="github_oauth_no_password",
-            role="user"
-        )
-        db.add(user)
-        await db.flush()
-        await db.refresh(user)
-
-    ip_address, user_agent = _request_metadata(request)
-    now = datetime.utcnow()
-    
-    import uuid
-    session_id = str(uuid.uuid4())
-    
-    access_token = create_access_token(
-        data={"sub": user.email, "session_id": session_id},
-        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    )
-    
-    refresh_token = create_refresh_token(
-        data={"sub": user.email, "session_id": session_id},
-        expires_delta=timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-    )
-    
-    session = UserSession(
-        id=session_id,
-        user_id=user.id,
-        session_token=access_token,
-        refresh_token=refresh_token,
-        ip_address=ip_address,
-        user_agent=user_agent,
-        expires_at=now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    )
-    db.add(session)
-    await db.commit()
-    
-    return {"access_token": access_token, "token_type": "bearer", "user": _user_response(user)}
+    # A username is not proof of GitHub ownership. Fail closed until a verified
+    # provider subject is bound to a distinct external-principal namespace.
+    raise HTTPException(status_code=410, detail="GITHUB_USERNAME_EXCHANGE_RETIRED")
