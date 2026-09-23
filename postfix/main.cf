@@ -1,0 +1,13 @@
+relayhost = [smtp.mx.cloudflare.net]:465
+smtp_sasl_auth_enable = yes
+smtp_sasl_password_maps = hash:/etc/postfix/sasl_passwd
+smtp_sasl_security_options = noanonymous
+smtp_tls_security_level = encrypt
+smtp_tls_wrappermode = yes
+smtp_tls_CAfile = /etc/ssl/certs/ca-certificates.crt
+maillog_file = /var/log/postfix.log
+mynetworks = 127.0.0.0/8 172.16.0.0/12 10.0.0.0/8 192.168.0.0/16
+inet_interfaces = all
+myhostname = veklom-mail-relay
+smtpd_relay_restrictions = permit_mynetworks, reject_unauth_destination
+smtpd_recipient_restrictions = permit_mynetworks, reject_unauth_destination
