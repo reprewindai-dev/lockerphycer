@@ -1,42 +1,25 @@
-"""
-Veklom Email Sender — Resend integration for transactional emails.
+"""Provider-neutral transactional email delivery.
 
-Usage:
-    from apps.email.sender import send_welcome, send_verify_email, ...
-
-Each function loads the matching HTML template from apps/email/templates/,
-substitutes {{VARIABLE}} placeholders, and sends via Resend.
+Veklom verification semantics must not depend on one delivery vendor. This module
+uses standard SMTP and can fail over to a second independently configured relay.
 """
+
+from __future__ import annotations
 
 import html as html_lib
 import logging
-import os
+import smtplib
+import ssl
+from email.message import EmailMessage
+from email.utils import parseaddr
 from pathlib import Path
 from typing import Optional
-
-try:
-    import resend
-except ImportError:
-    resend = None  # type: ignore[assignment]
 
 from core.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
-
-
-def _init_resend() -> bool:
-    """Ensure the Resend SDK is configured. Returns True if ready."""
-    if resend is None:
-        logger.warning("resend package not installed — email sending disabled")
-        return False
-    api_key = settings.RESEND_API_KEY or os.environ.get("RESEND_API_KEY")
-    if not api_key:
-        logger.warning("RESEND_API_KEY not set — email sending disabled")
-        return False
-    resend.api_key = api_key
-    return True
 
 
 def _render(template_name: str, variables: dict) -> str:
@@ -48,29 +31,102 @@ def _render(template_name: str, variables: dict) -> str:
     return html
 
 
-def _send(to: str, subject: str, html: str) -> Optional[str]:
-    """Send an email via Resend. Returns the message ID or None on failure."""
-    if not _init_resend():
+def _smtp_send(
+    *,
+    host: str,
+    port: int,
+    user: str,
+    password: str,
+    use_tls: bool,
+    use_ssl: bool,
+    to: str,
+    subject: str,
+    html: str,
+) -> Optional[str]:
+    """Send one message through a configured SMTP relay."""
+    if not host:
         return None
+
+    display_name, from_addr = parseaddr(settings.EMAIL_FROM)
+    if not from_addr:
+        logger.error("EMAIL_FROM is invalid")
+        return None
+
+    msg = EmailMessage()
+    msg["From"] = settings.EMAIL_FROM
+    msg["To"] = to
+    msg["Subject"] = subject
+    msg.set_content("This message requires an HTML-capable mail client.")
+    msg.add_alternative(html, subtype="html")
+
+    context = ssl.create_default_context()
+    timeout = settings.SMTP_TIMEOUT_SECONDS
+
     try:
-        params = {
-            "from": settings.EMAIL_FROM,
-            "to": [to],
-            "subject": subject,
-            "html": html,
-        }
-        resp = resend.Emails.send(params)
-        msg_id = resp.get("id") if isinstance(resp, dict) else getattr(resp, "id", None)
-        logger.info("Email sent — id=%s", msg_id)
-        return msg_id
+        if use_ssl:
+            smtp = smtplib.SMTP_SSL(host, port, timeout=timeout, context=context)
+        else:
+            smtp = smtplib.SMTP(host, port, timeout=timeout)
+
+        with smtp:
+            smtp.ehlo()
+            if use_tls and not use_ssl:
+                smtp.starttls(context=context)
+                smtp.ehlo()
+            if user:
+                smtp.login(user, password)
+            refused = smtp.send_message(msg)
+
+        if refused:
+            logger.error("SMTP relay refused recipient(s): %s", sorted(refused))
+            return None
+
+        # SMTP does not provide a universal provider message ID. Generate a
+        # local correlation ID from the Message-ID header if present.
+        return msg.get("Message-ID") or f"smtp:{host}:{to}"
     except Exception:
-        logger.exception("Failed to send email")
+        logger.exception("SMTP delivery attempt failed host=%s", host)
         return None
 
 
-# ---------------------------------------------------------------------------
-# Public helpers — one per template
-# ---------------------------------------------------------------------------
+def _send(to: str, subject: str, html: str) -> Optional[str]:
+    """Send via primary SMTP relay, then independent fallback relay."""
+    if settings.EMAIL_TRANSPORT.lower() != "smtp":
+        logger.error("Unsupported EMAIL_TRANSPORT=%s", settings.EMAIL_TRANSPORT)
+        return None
+
+    primary = _smtp_send(
+        host=settings.SMTP_HOST,
+        port=settings.SMTP_PORT,
+        user=settings.SMTP_USER,
+        password=settings.SMTP_PASSWORD,
+        use_tls=settings.SMTP_TLS,
+        use_ssl=settings.SMTP_SSL,
+        to=to,
+        subject=subject,
+        html=html,
+    )
+    if primary:
+        logger.info("Email accepted by primary SMTP transport correlation=%s", primary)
+        return primary
+
+    fallback = _smtp_send(
+        host=settings.SMTP_FALLBACK_HOST,
+        port=settings.SMTP_FALLBACK_PORT,
+        user=settings.SMTP_FALLBACK_USER,
+        password=settings.SMTP_FALLBACK_PASSWORD,
+        use_tls=settings.SMTP_FALLBACK_TLS,
+        use_ssl=settings.SMTP_FALLBACK_SSL,
+        to=to,
+        subject=subject,
+        html=html,
+    )
+    if fallback:
+        logger.warning("Primary SMTP unavailable; fallback accepted message correlation=%s", fallback)
+        return fallback
+
+    logger.error("All configured email transports unavailable")
+    return None
 
 
 def send_welcome(to: str, first_name: str) -> Optional[str]:
