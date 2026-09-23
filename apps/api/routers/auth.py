@@ -379,46 +379,6 @@ async def github_exchange(
     request: Request,
     db: AsyncSession = Depends(get_db)
 ):
-    normalized_email = f"{payload.github_username}@machine.veklom.com"
-    user = (await db.execute(select(User).where(User.email == normalized_email))).scalars().first()
-    if not user:
-        user = User(
-            email=normalized_email,
-            username=payload.github_username,
-            full_name=payload.github_username,
-            hashed_password="github_oauth_no_password",
-            role="user"
-        )
-        db.add(user)
-        await db.flush()
-        await db.refresh(user)
-
-    ip_address, user_agent = _request_metadata(request)
-    now = datetime.utcnow()
-    
-    import uuid
-    session_id = str(uuid.uuid4())
-    
-    access_token = create_access_token(
-        data={"sub": user.email, "session_id": session_id},
-        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    )
-    
-    refresh_token = create_refresh_token(
-        data={"sub": user.email, "session_id": session_id},
-        expires_delta=timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-    )
-    
-    session = UserSession(
-        id=session_id,
-        user_id=user.id,
-        session_token=access_token,
-        refresh_token=refresh_token,
-        ip_address=ip_address,
-        user_agent=user_agent,
-        expires_at=now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    )
-    db.add(session)
-    await db.commit()
-    
-    return {"access_token": access_token, "token_type": "bearer", "user": _user_response(user)}
+    # A username is not proof of GitHub ownership. Fail closed until a verified
+    # provider subject is bound to a distinct external-principal namespace.
+    raise HTTPException(status_code=410, detail="GITHUB_USERNAME_EXCHANGE_RETIRED")
