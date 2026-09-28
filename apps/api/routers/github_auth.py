@@ -6,7 +6,7 @@ import base64
 import hashlib
 import hmac
 import time
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Request, Response, HTTPException, status
 from fastapi.responses import RedirectResponse
@@ -68,14 +68,10 @@ def derive_password(github_id: int) -> str:
 
 
 def login_redirect(destination: str, request: Request, error: str = None) -> RedirectResponse:
-    # Assuming the frontend is where we redirect for login errors
-    base_url = "https://veklom.com"
-    # Try to extract the origin from headers if possible
-    origin = request.headers.get("origin") or request.headers.get("referer")
-    if origin:
-        parsed_origin = urlparse(origin)
-        base_url = f"{parsed_origin.scheme}://{parsed_origin.netloc}"
-        
+    # OAuth callbacks arrive from GitHub, so Origin/Referer are not trusted as
+    # the Veklom return host. Keep every browser-visible redirect on the public
+    # application origin configured by the deployment.
+    base_url = os.environ.get("PUBLIC_FRONTEND_URL", "https://veklom.com").rstrip("/")
     url = f"{base_url}{destination}" if destination.startswith("/") else destination
     if error:
         url += f"?github_error_description={error[:240]}"
