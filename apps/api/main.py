@@ -290,6 +290,8 @@ app.include_router(monitoring.router, prefix="/api/v1/monitoring", tags=["Monito
 app.include_router(ai.router, prefix="/api/v1/ai", tags=["AI Services"])
 app.include_router(verticals_router, prefix="/api/v1/verticals", tags=["Verticals"])
 app.include_router(workspace.router, prefix="/api/v1/workspace", tags=["Workspace"])
+from apps.api.routers import machine_tokens
+app.include_router(machine_tokens.router, prefix="/api/v1", tags=["Machine Tokens"])
 app.include_router(marketplace.router, prefix="/api/v1/marketplace", tags=["Marketplace"])
 app.include_router(billing.router, prefix="/api/v1/billing", tags=["Billing"])
 app.include_router(business.router, prefix="/api/v1/business", tags=["Business Control Plane"])

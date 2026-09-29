@@ -552,3 +552,16 @@ class ActorRun(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     started_at: Mapped[datetime | None] = mapped_column(DateTime)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+class MachineToken(Base):
+    __tablename__ = "machine_tokens"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    hashed_secret: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    workspace_id: Mapped[str] = mapped_column(String(36), index=True)
+    created_by: Mapped[str] = mapped_column(String(255))
+    name: Mapped[str] = mapped_column(String(160))
+    status: Mapped[str] = mapped_column(String(50), default="active")
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    revoked_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    last_used_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
