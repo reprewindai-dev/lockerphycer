@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-<title>Your Veklom Welcome access is live</title>
+<title>Your Veklom Welcome period has ended</title>
 <!--[if mso]>
 <noscript>
 <xml>
@@ -37,7 +37,7 @@
             <span style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:24px;font-weight:700;color:#22D3EE;letter-spacing:2px;">VEKLOM</span>
           </td>
           <td align="right">
-            <span style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:12px;color:#9AA8AD;letter-spacing:1px;">WELCOME ACCESS</span>
+            <span style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:12px;color:#9AA8AD;letter-spacing:1px;">NOW ON FREE</span>
           </td>
         </tr>
       </table>
@@ -47,54 +47,50 @@
   <!-- Body -->
   <tr>
     <td style="padding:48px 40px;">
-      <h1 style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:28px;font-weight:700;color:#FFFFFF;margin:0 0 8px;">You're in, {{FIRST_NAME}}.</h1>
+      <h1 style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:28px;font-weight:700;color:#FFFFFF;margin:0 0 8px;">Your Welcome period has ended.</h1>
       <p style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:16px;color:#9AA8AD;line-height:1.6;margin:0 0 24px;">
-        Veklom is trust infrastructure for machines and AI agents: identity, authority, execution and evidence in one place.
+        {{FIRST_NAME}}, your account is now on Free, and Free limits apply: {{FREE_LIMIT}}. Free still works for development and testing.
       </p>
 
-      <!-- Trial line -->
+      <!-- Positioning -->
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
         <tr>
           <td style="padding:16px 20px;background-color:#0B2A31;border-radius:8px;border:1px solid #155E6B;">
-            <p style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;color:#FFFFFF;margin:0;">Your 14-day Welcome access has started: full Veklom access for 14 days.</p>
+            <p style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;color:#FFFFFF;margin:0 0 4px;">Free proves Veklom. Paid runs Veklom.</p>
+            <p style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13px;color:#9AA8AD;margin:0;line-height:1.5;">Production workflows need Pro or Team.</p>
           </td>
         </tr>
       </table>
 
-      <!-- Feature cards -->
+      <!-- Plan cards -->
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:32px;">
         <tr>
           <td style="padding:16px 20px;background-color:#111C20;border-radius:8px;border-left:3px solid #22D3EE;">
-            <p style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;color:#22D3EE;margin:0 0 4px;">Step 1 &middot; VLink</p>
-            <p style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13px;color:#9AA8AD;margin:0;line-height:1.5;">Governed agent connections. Connect a system, authorize what it may do, enforce it, and get a receipt for every action.</p>
+            <p style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;color:#22D3EE;margin:0 0 4px;">Pro &middot; {{PRO_PRICE}}</p>
+            <p style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13px;color:#9AA8AD;margin:0;">Run your agents in production.</p>
           </td>
         </tr>
         <tr><td style="height:8px;"></td></tr>
         <tr>
           <td style="padding:16px 20px;background-color:#111C20;border-radius:8px;border-left:3px solid #22D3EE;">
-            <p style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;color:#22D3EE;margin:0 0 4px;">Step 2 &middot; Capability OS</p>
-            <p style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13px;color:#9AA8AD;margin:0;line-height:1.5;">Governed machines. Verifiable actions. Your workspace for deciding what machines may do.</p>
+            <p style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;color:#22D3EE;margin:0 0 4px;">Team &middot; {{TEAMS_PRICE}}</p>
+            <p style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13px;color:#9AA8AD;margin:0;">Run agents in production across your team.</p>
           </td>
         </tr>
       </table>
 
-      <!-- Primary CTA -->
-      <table role="presentation" cellpadding="0" cellspacing="0" style="margin-bottom:16px;">
+      <!-- CTA -->
+      <table role="presentation" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
         <tr>
           <td style="border-radius:8px;background-color:#22D3EE;">
-            <a href="{{BASE_URL}}/vlink/connect/" target="_blank" style="display:inline-block;padding:14px 32px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;font-weight:700;color:#070B0D;text-decoration:none;border-radius:8px;">Connect your first system with VLink</a>
+            <a href="{{UPGRADE_URL}}" target="_blank" style="display:inline-block;padding:14px 32px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;font-weight:700;color:#070B0D;text-decoration:none;border-radius:8px;">Upgrade to Pro or Team</a>
           </td>
         </tr>
       </table>
 
-      <!-- Secondary CTA -->
-      <table role="presentation" cellpadding="0" cellspacing="0">
-        <tr>
-          <td style="border-radius:8px;border:1px solid #22D3EE;">
-            <a href="{{BASE_URL}}/os" target="_blank" style="display:inline-block;padding:12px 28px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;color:#22D3EE;text-decoration:none;border-radius:8px;">Open Capability OS</a>
-          </td>
-        </tr>
-      </table>
+      <p style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13px;color:#9AA8AD;line-height:1.6;margin:0;">
+        Staying on Free for now? Keep testing in <a href="{{BASE_URL}}/os" style="color:#22D3EE;text-decoration:underline;">Capability OS</a>.
+      </p>
     </td>
   </tr>
 
@@ -103,7 +99,7 @@
     <td style="padding:24px 40px;border-top:1px solid #1C2A2F;">
       <p style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:12px;color:#9AA8AD;margin:0;line-height:1.6;">
         Veklom — M2M Trust Infrastructure<br />
-        You received this because you created a Veklom account.<br />
+        You received this because your Veklom Welcome period has ended.<br />
         <a href="{{BASE_URL}}/support" style="color:#22D3EE;text-decoration:underline;">Support</a>
       </p>
     </td>
