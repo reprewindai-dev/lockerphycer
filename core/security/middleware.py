@@ -466,6 +466,8 @@ def allowed_request_origins() -> set[str]:
         settings.FRONTEND_URL.rstrip("/"),
         "https://veklom.dev",
         "https://veklom.com",
+        "https://os.veklom.com",
+        "https://vlink.veklom.com",
         "https://app.veklom.com",
         "http://localhost:3002",
         "http://127.0.0.1:3002",
