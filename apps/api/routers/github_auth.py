@@ -5,6 +5,7 @@ import json
 import base64
 import hashlib
 import hmac
+import logging
 import time
 from urllib.parse import urlencode, urlparse
 
@@ -19,6 +20,7 @@ from core.security.auth import create_access_token, create_refresh_token
 from db.models import User, UserSession, UserRole, UserStatus
 from datetime import datetime, timedelta
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 CLIENT_ID = os.environ.get("GITHUB_CLIENT_ID")
@@ -152,9 +154,16 @@ async def github_callback(request: Request, db: AsyncSession = Depends(get_db)):
             user_res = await client.get("https://api.github.com/user", headers={"Authorization": f"Bearer {github_token}", "Accept": "application/vnd.github+json"})
             emails_res = await client.get("https://api.github.com/user/emails", headers={"Authorization": f"Bearer {github_token}", "Accept": "application/vnd.github+json"})
             
+            if user_res.status_code != 200:
+                logger.warning("GitHub /user returned %s", user_res.status_code)
+                return login_redirect("/login", request, "Could not retrieve GitHub user info.")
             github_user = user_res.json()
-            emails = emails_res.json()
-            
+            # /user/emails needs the GitHub App "Email addresses: read" account permission.
+            # Without it GitHub returns 403 with an error object; fall back to the profile email.
+            emails = emails_res.json() if emails_res.status_code == 200 else []
+            if emails_res.status_code != 200:
+                logger.warning("GitHub /user/emails returned %s; using profile email", emails_res.status_code)
+
             primary_email = next((e["email"] for e in emails if e.get("primary") and e.get("verified")), None)
             if not primary_email:
                 primary_email = next((e["email"] for e in emails if e.get("verified")), None)
