@@ -657,3 +657,51 @@ class ActivationEvent(Base):
     dedupe_key: Mapped[str | None] = mapped_column(String(255), unique=True)
     details: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+# ---------------------------------------------------------------------------
+# Veklom Wallet (Base): workspace-bound wallet addresses and SIWE nonces
+# ---------------------------------------------------------------------------
+
+
+class WorkspaceWallet(Base):
+    """A wallet address proven (EIP-4361 / SIWE) and bound to a workspace.
+
+    ``source`` is "created" (CDP embedded wallet or a new Base Account made in
+    onboarding) or "connected" (an existing wallet). One active row per
+    workspace and chain; re-binding a different address revokes the previous
+    row (``revoked_at``) so history is kept.
+    """
+
+    __tablename__ = "workspace_wallets"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "chain_id", "address", name="uq_workspace_wallet_address"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(String(36), index=True)
+    chain_id: Mapped[int] = mapped_column(Integer, index=True)
+    address: Mapped[str] = mapped_column(String(42), index=True)  # EIP-55 checksummed
+    source: Mapped[str] = mapped_column(String(20))  # "created" | "connected"
+    wallet_provider: Mapped[str | None] = mapped_column(String(60))  # e.g. cdp_embedded, base_account, walletconnect
+    signature_kind: Mapped[str] = mapped_column(String(20))  # "eoa" | "contract" (ERC-1271/6492)
+    siwe_message: Mapped[str] = mapped_column(Text)
+    siwe_signature: Mapped[str] = mapped_column(Text)
+    siwe_nonce: Mapped[str] = mapped_column(String(64), unique=True)
+    verified_by: Mapped[str] = mapped_column(String(255))  # operator email that signed in
+    verified_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class WalletNonce(Base):
+    """Single-use SIWE nonces, issued per workspace; consumed on verification."""
+
+    __tablename__ = "wallet_nonces"
+
+    nonce: Mapped[str] = mapped_column(String(64), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(36), index=True)
+    issued_to: Mapped[str] = mapped_column(String(255))
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

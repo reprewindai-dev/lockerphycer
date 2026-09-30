@@ -20,3 +20,4 @@ aiofiles==24.1.0
 cryptography>=50,<51
 resend==2.43.0
 alembic==1.13.1
+eth-account==0.14.0
