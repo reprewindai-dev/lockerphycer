@@ -332,9 +332,9 @@ def test_onchain_topup_credits_once(base):
         assert r.json()["credited"] is True and r.json()["credits"] == 50 * 50  # 50 USDC at TOPUP_CREDITS_PER_USD=50
         again = client.post("/api/v1/wallet/topups/onchain", headers=headers, json={"tx_hash": tx})
         assert again.status_code == 200 and again.json()["replay"] is True
-        assert r.json()["balance"]["topup_balance"] == 5000
+        assert r.json()["balance"]["topup_balance"] == 2500
         snapshot = client.get("/api/v1/entitlements", headers=headers).json()
-        assert snapshot["balances"]["topup_balance"] == 5000  # credited exactly once
+        assert snapshot["balances"]["topup_balance"] == 2500  # credited exactly once
     assert "funding_method_added" in _events(ws_id)
 
 
