@@ -34,8 +34,10 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         client_ip = self._get_client_ip(request)
         
         try:
-            # Rate limiting
-            if not await self.rate_limiter.is_allowed(client_ip):
+            # Rate limiting. Authenticated CAPPO->LockerPhycer metering calls all
+            # originate from one service IP; they are exempt only when they carry
+            # the configured service token (CAPPO applies its own limits).
+            if not _is_authenticated_internal_call(request) and not await self.rate_limiter.is_allowed(client_ip):
                 return JSONResponse(
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                     content={"error": {"code": 429, "message": "Rate limit exceeded"}}
@@ -225,6 +227,18 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                 f"Suspicious activity detected from {client_ip}: "
                 f"multiple requests to sensitive endpoints"
             )
+
+
+def _is_authenticated_internal_call(request: Request) -> bool:
+    if not request.url.path.startswith("/api/v1/internal/"):
+        return False
+    import hmac
+
+    from core.entitlements.config import get_entitlement_settings
+
+    expected = get_entitlement_settings().ENTITLEMENTS_INTERNAL_TOKEN
+    supplied = request.headers.get("x-veklom-service-token")
+    return bool(expected and supplied and hmac.compare_digest(supplied, expected))
 
 
 class RateLimiter:

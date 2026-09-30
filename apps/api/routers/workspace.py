@@ -20,6 +20,8 @@ from core.security.auth import (
     get_current_user,
     require_admin,
 )
+from core.entitlements.activation import emit_activation_event
+from core.entitlements.service import ensure_entitlement
 from db.models import MarketplaceListing, SubscriptionTier, User, UserSession, Workspace
 
 router = APIRouter()
@@ -171,6 +173,9 @@ async def create_workspace(
     db.add(ws)
     await db.flush()
     await db.refresh(ws)
+    # Start the Welcome clock with the workspace (committed with the session
+    # rotation below). GET /entitlements lazily repairs a missing row.
+    await ensure_entitlement(db, ws)
     return await _workspace_payload(
         db=db,
         user=current_user,
@@ -248,7 +253,10 @@ async def authorize_vlink_workspace(
         raise HTTPException(status_code=403, detail="Workspace ownership required")
     response.headers["Cache-Control"] = "no-store"
     response.headers["Vary"] = "Authorization"
-    return {"authorized": True, "workspace_id": ws.id}
+    workspace_id = ws.id
+    # VLink calls this when binding a device to the workspace (once-only event).
+    await emit_activation_event(db, "system_connected", workspace_id=workspace_id, ref="vlink")
+    return {"authorized": True, "workspace_id": workspace_id}
 
 
 @router.put("/{workspace_id}")

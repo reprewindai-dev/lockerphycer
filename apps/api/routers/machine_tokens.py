@@ -5,9 +5,11 @@ import hashlib
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from fastapi.responses import JSONResponse
+from sqlalchemy import func, or_, select
 
 from core.database.database import get_db
+from core.entitlements.service import EntitlementError, check_agent_limit
 from core.security.auth import get_current_user, create_access_token
 from db.models import User, Workspace, MachineToken
 
@@ -54,6 +56,24 @@ async def create_machine_token(
     ws = await db.get(Workspace, payload.workspace_id)
     if not ws or ws.owner_id != current_user.email or not ws.is_active:
         raise HTTPException(status_code=403, detail="Workspace ownership required")
+
+    # Plan agent limit: an active machine token is the workspace's agent credential.
+    now = datetime.utcnow()
+    active_agents = (
+        await db.execute(
+            select(func.count()).select_from(MachineToken).where(
+                MachineToken.workspace_id == ws.id,
+                MachineToken.status == "active",
+                MachineToken.revoked_at.is_(None),
+                or_(MachineToken.expires_at.is_(None), MachineToken.expires_at > now),
+            )
+        )
+    ).scalar_one()
+    try:
+        await check_agent_limit(db, ws, int(active_agents))
+    except EntitlementError as exc:
+        await db.commit()  # keep the lazily-created entitlement row
+        return JSONResponse(status_code=exc.status_code, content={"error": exc.body})
 
     raw_secret = f"vkl_live_{secrets.token_urlsafe(32)}"
     hashed = _hash_secret(raw_secret)

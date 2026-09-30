@@ -1,16 +1,23 @@
 """Billing, wallet, and subscription routes"""
 
+import asyncio
 from datetime import datetime
 from typing import Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+import httpx
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi.security import HTTPAuthorizationCredentials
+from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.routers.entitlements import _current_workspace
+from core.config.settings import settings as app_settings
 from core.database.database import get_db
-from core.security.auth import require_admin
-from db.models import SubscriptionTier, WalletTransaction, Workspace
+from core.entitlements import stripe_billing
+from core.security.auth import bearer, get_current_user, require_admin
+from db.models import SubscriptionTier, User, WalletTransaction, Workspace
 
 router = APIRouter()
 
@@ -137,6 +144,76 @@ async def fund_wallet(
     db.add(tx)
     await db.commit()
     return {"balance_cents": balance, "transaction_id": tx.id}
+
+
+# ---------------------------------------------------------------------------
+# Stripe (TEST mode): checkout, customer portal, webhook
+# ---------------------------------------------------------------------------
+
+
+class CheckoutRequest(BaseModel):
+    kind: str = Field(pattern=r"^(pro|team|topup_50|topup_100|topup_500)$")
+
+
+@router.post("/checkout")
+async def create_checkout(
+    body: CheckoutRequest,
+    current_user: User = Depends(get_current_user),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer),
+    db: AsyncSession = Depends(get_db),
+):
+    ws = await _current_workspace(db, current_user, credentials)
+    if (
+        body.kind in stripe_billing.SUBSCRIPTION_KINDS
+        and ws.stripe_subscription_id
+        and ws.subscription_status in ("active", "trialing", "past_due")
+    ):
+        raise HTTPException(status_code=409, detail="Subscription exists; use the billing portal to change it")
+    try:
+        client = stripe_billing.client_factory()
+        return await asyncio.to_thread(
+            stripe_billing.create_checkout_session, client,
+            workspace=ws, email=current_user.email, kind=body.kind,
+        )
+    except stripe_billing.StripeConfigError as exc:
+        raise HTTPException(status_code=503, detail="Stripe is not configured") from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Stripe request failed") from exc
+
+
+@router.post("/portal")
+async def create_portal(
+    current_user: User = Depends(get_current_user),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer),
+    db: AsyncSession = Depends(get_db),
+):
+    ws = await _current_workspace(db, current_user, credentials)
+    if not ws.stripe_customer_id:
+        raise HTTPException(status_code=404, detail="No Stripe customer for this workspace")
+    try:
+        client = stripe_billing.client_factory()
+        return await asyncio.to_thread(stripe_billing.create_portal_session, client, workspace=ws)
+    except stripe_billing.StripeConfigError as exc:
+        raise HTTPException(status_code=503, detail="Stripe is not configured") from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Stripe request failed") from exc
+
+
+@router.post("/stripe/webhook")
+async def stripe_webhook(
+    request: Request,
+    stripe_signature: Optional[str] = Header(default=None, alias="Stripe-Signature"),
+    db: AsyncSession = Depends(get_db),
+):
+    payload = await request.body()
+    try:
+        event = stripe_billing.verify_signature(payload, stripe_signature, app_settings.STRIPE_WEBHOOK_SECRET)
+    except stripe_billing.StripeConfigError as exc:
+        raise HTTPException(status_code=503, detail="Stripe webhook secret not configured") from exc
+    except (stripe_billing.StripeSignatureError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid Stripe signature") from exc
+    result = await stripe_billing.process_event(db, event)
+    return {"received": True, **result}
 
 
 @router.post("/activate/{workspace_id}")

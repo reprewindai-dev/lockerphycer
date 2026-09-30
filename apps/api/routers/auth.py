@@ -7,7 +7,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.schemas.auth import (
@@ -23,6 +23,7 @@ from apps.api.schemas.auth import (
 from apps.email.sender import send_password_reset, send_verify_email, send_welcome
 from core.config.settings import settings
 from core.database.database import get_db
+from core.entitlements.activation import emit_activation_event
 from core.security.auth import (
     create_access_token,
     create_email_verification_token,
@@ -124,7 +125,9 @@ async def register(user_data: RegisterRequest, db: AsyncSession = Depends(get_db
 
     await db.commit()
     await db.refresh(user)
-    return _user_response(user)
+    response = _user_response(user)
+    await emit_activation_event(db, "signup_completed", user_id=user.id)
+    return response
 
 
 @router.post("/email-verification/resend", status_code=status.HTTP_202_ACCEPTED)
@@ -166,6 +169,7 @@ async def confirm_email_verification(
         await db.commit()
         await db.refresh(user)
         await asyncio.to_thread(send_welcome, user.email, _first_name(user))
+        await emit_activation_event(db, "email_verified", user_id=user.id)
 
     return {"verified": True, "activated": activated}
 
@@ -221,19 +225,33 @@ async def login(
     db.add(session)
     await db.commit()
     await db.refresh(user)
+    response_user = _user_response(user)
+    await _maybe_emit_second_session(db, user.id)
 
     return LoginResponse(
         access_token=access_token,
         refresh_token=refresh_token,
         token_type="bearer",
         expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        user=_user_response(user),
+        user=response_user,
         _links={
             "refresh": {"href": "/api/v1/auth/refresh", "method": "POST"},
             "logout": {"href": "/api/v1/auth/logout", "method": "POST"},
             "workspace": {"href": "/api/v1/workspace", "method": "GET"},
         },
     )
+
+
+async def _maybe_emit_second_session(db: AsyncSession, user_id: str) -> None:
+    """second_session: the user's second password login (once-only)."""
+    try:
+        count = (
+            await db.execute(select(func.count()).select_from(UserSession).where(UserSession.user_id == user_id))
+        ).scalar_one()
+    except Exception:
+        return
+    if count >= 2:
+        await emit_activation_event(db, "second_session", user_id=user_id)
 
 
 @router.post("/password-reset", status_code=status.HTTP_202_ACCEPTED)
