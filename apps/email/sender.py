@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import html as html_lib
 import logging
+import re
 import smtplib
 import ssl
 from email.message import EmailMessage
@@ -26,11 +27,29 @@ class DeliveryIndeterminate(RuntimeError):
     """Transport may have accepted DATA. Do not automatically fail over."""
 
 
+_PLACEHOLDER_RE = re.compile(r"\{\{[A-Z0-9_]+\}\}")
+
+
+def _base_url() -> str:
+    """Public site origin used for links inside emails (e.g. https://veklom.com)."""
+    return settings.FRONTEND_URL.rstrip("/")
+
+
 def _render(template_name: str, variables: dict) -> str:
-    """Load an HTML template and substitute {{KEY}} placeholders."""
+    """Load an HTML template and substitute {{KEY}} placeholders.
+
+    BASE_URL is always available. Raises ValueError if any placeholder is left
+    unresolved, so a half-rendered email is never handed to a relay.
+    """
     path = TEMPLATES_DIR / template_name
     html = path.read_text(encoding="utf-8")
-    for key, value in variables.items():
+    merged = {"BASE_URL": _base_url(), **variables}
+    # Check against the raw template (not the output) so user-supplied values
+    # that happen to contain braces can never trip this guard.
+    missing = sorted({p[2:-2] for p in _PLACEHOLDER_RE.findall(html)} - set(merged))
+    if missing:
+        raise ValueError(f"Unresolved placeholders in {template_name}: {', '.join(missing)}")
+    for key, value in merged.items():
         html = html.replace("{{" + key + "}}", html_lib.escape(str(value), quote=True))
     return html
 
@@ -147,7 +166,7 @@ def _send(to: str, subject: str, html: str) -> Optional[str]:
 
 def send_welcome(to: str, first_name: str) -> Optional[str]:
     html = _render("welcome.html", {"FIRST_NAME": first_name})
-    return _send(to, f"Welcome to Veklom, {first_name}", html)
+    return _send(to, "Your Veklom Welcome access is live — connect your first system", html)
 
 
 def send_verify_email(to: str, first_name: str, verify_url: str) -> Optional[str]:
@@ -155,7 +174,7 @@ def send_verify_email(to: str, first_name: str, verify_url: str) -> Optional[str
         "verify-email.html", {"FIRST_NAME": first_name, "VERIFY_URL": verify_url,
                               "EXPIRE_MINUTES": settings.EMAIL_VERIFICATION_EXPIRE_MINUTES}
     )
-    return _send(to, "Verify your email address", html)
+    return _send(to, "Verify your email to start your Veklom Welcome access", html)
 
 
 def send_password_reset(to: str, first_name: str, reset_url: str) -> Optional[str]:
@@ -163,7 +182,7 @@ def send_password_reset(to: str, first_name: str, reset_url: str) -> Optional[st
         "password-reset.html", {"FIRST_NAME": first_name, "RESET_URL": reset_url,
                                 "EXPIRE_MINUTES": settings.PASSWORD_RESET_EXPIRE_MINUTES}
     )
-    return _send(to, "Reset your password", html)
+    return _send(to, "Reset your Veklom password", html)
 
 
 def send_subscription_confirmation(
@@ -184,7 +203,7 @@ def send_subscription_confirmation(
             "NEXT_BILLING_DATE": next_billing_date,
         },
     )
-    return _send(to, f"Your {plan_name} subscription is confirmed", html)
+    return _send(to, f"Your Veklom {plan_name} plan is active", html)
 
 
 def send_team_invite(
@@ -207,4 +226,69 @@ def send_team_invite(
             "INVITE_URL": invite_url,
         },
     )
-    return _send(to, f"{inviter_name} invited you to {team_name}", html)
+    return _send(to, f"{inviter_name} invited you to {team_name} on Veklom", html)
+
+
+# --- Welcome access (trial) lifecycle -------------------------------------
+# Not wired to any scheduler yet: trial state/timing does not exist in the
+# backend. Prices/limits default to the locked pricing below but remain
+# template variables, so callers can override them. The upgrade URL has NO
+# default: no live upgrade page exists yet, so callers must pass one.
+
+DEFAULT_PRO_PRICE = "$99/month · 5,000 credits"
+DEFAULT_TEAMS_PRICE = "$399/month · 20,000 credits"
+DEFAULT_FREE_LIMIT = "250 credits/month"
+
+
+def send_trial_ending(
+    to: str,
+    first_name: str,
+    *,
+    days_left: int,
+    governed_actions: int,
+    denied_actions: int,
+    active_agents: int,
+    receipts: int,
+    upgrade_url: str,
+    free_limit: str = DEFAULT_FREE_LIMIT,
+    pro_price: str = DEFAULT_PRO_PRICE,
+    teams_price: str = DEFAULT_TEAMS_PRICE,
+) -> Optional[str]:
+    html = _render(
+        "trial-ending.html",
+        {
+            "FIRST_NAME": first_name,
+            "DAYS_LEFT": days_left,
+            "GOVERNED_ACTIONS": governed_actions,
+            "DENIED_ACTIONS": denied_actions,
+            "ACTIVE_AGENTS": active_agents,
+            "RECEIPTS": receipts,
+            "FREE_LIMIT": free_limit,
+            "PRO_PRICE": pro_price,
+            "TEAMS_PRICE": teams_price,
+            "UPGRADE_URL": upgrade_url,
+        },
+    )
+    return _send(to, f"{days_left} days left in your Veklom Welcome access", html)
+
+
+def send_trial_ended(
+    to: str,
+    first_name: str,
+    *,
+    upgrade_url: str,
+    free_limit: str = DEFAULT_FREE_LIMIT,
+    pro_price: str = DEFAULT_PRO_PRICE,
+    teams_price: str = DEFAULT_TEAMS_PRICE,
+) -> Optional[str]:
+    html = _render(
+        "trial-ended.html",
+        {
+            "FIRST_NAME": first_name,
+            "FREE_LIMIT": free_limit,
+            "PRO_PRICE": pro_price,
+            "TEAMS_PRICE": teams_price,
+            "UPGRADE_URL": upgrade_url,
+        },
+    )
+    return _send(to, "Your Veklom Welcome access has ended — Free limits now apply", html)
