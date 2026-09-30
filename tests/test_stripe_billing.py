@@ -186,7 +186,7 @@ def test_setup_is_idempotent_and_refuses_live_keys(fake_stripe):
     assert prices["veklom_pro_monthly"]["recurring"] == {"interval": "month"}
     assert prices["veklom_team_monthly"]["unit_amount"] == 39900
     assert prices["veklom_topup_50"]["recurring"] is None
-    assert prices["veklom_topup_500"]["metadata"]["credits"] == "50000"
+    assert prices["veklom_topup_500"]["metadata"]["credits"] == "25000"
     assert set(fake_stripe.products) == {"veklom_pro", "veklom_team", "veklom_credits_topup"}
     with pytest.raises(StripeConfigError):
         StripeClient("sk_live_" + "x" * 20)
@@ -217,7 +217,7 @@ def test_checkout_session_carries_workspace(fake_stripe):
         r = client.post("/api/v1/billing/checkout", headers=h, json={"kind": "topup_50"})
         assert r.status_code == 200
         s = fake_stripe.sessions[-1]
-        assert s["mode"] == "payment" and s["metadata[credits]"] == "5000"
+        assert s["mode"] == "payment" and s["metadata[credits]"] == "2500"
         assert client.post("/api/v1/billing/checkout", headers=h, json={"kind": "enterprise"}).status_code == 422
 
 

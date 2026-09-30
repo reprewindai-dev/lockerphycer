@@ -42,8 +42,9 @@ class EntitlementSettings(BaseSettings):
     # --- Stripe (TEST mode only; keys come from core.config.settings STRIPE_*) ---
     # PLACEHOLDER / OPEN DECISION: internal conversion used only to stamp
     # credits=<n> into top-up price metadata. Never shown publicly as a peg.
-    # 100/USD mirrors the reference orchestrator's TOP_UP_PACKS ratio.
-    TOPUP_CREDITS_PER_USD: int = 100
+    # 50/USD matches Pro/Team (~2¢ per credit); the live Stripe test prices carry
+    # the same credits=<n> metadata, which the webhook reads first.
+    TOPUP_CREDITS_PER_USD: int = 50
     STRIPE_API_BASE: str = "https://api.stripe.com"
     # Live keys are refused unless this is explicitly enabled (it is not, for now).
     STRIPE_ALLOW_LIVE: bool = False
