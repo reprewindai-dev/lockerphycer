@@ -1,7 +1,7 @@
 """Add analytics_events (first-party, cookieless funnel analytics)
 
 Revision ID: f3b9d2e7a4c1
-Revises: c4e8f1a2b3d5
+Revises: d7a1c9e4f2b6 (chained after the wallet tables so the history has one head)
 Create Date: 2026-09-30 21:00:00.000000
 
 New table only; no shared table is altered. The session-to-account link is an
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "f3b9d2e7a4c1"
-down_revision = "c4e8f1a2b3d5"
+down_revision = "d7a1c9e4f2b6"
 branch_labels = None
 depends_on = None
 
