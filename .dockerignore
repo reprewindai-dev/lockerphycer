@@ -4,3 +4,9 @@ __pycache__
 .git
 
 .pytest_cache
+
+# Runtime settings are mounted, never baked into the image
+.env
+.env.*
+!.env.example
+.test-tmp
