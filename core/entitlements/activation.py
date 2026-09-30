@@ -36,6 +36,9 @@ ACTIVATION_EVENTS = frozenset(
         "welcome_ending_notified",
         "welcome_ended",
         "trial_converted",
+        # Written only by POST /api/v1/analytics/link after sign-in; ref holds
+        # the anonymous per-tab analytics session id (the one account link).
+        "analytics_session_linked",
     }
 )
 

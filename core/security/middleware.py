@@ -109,7 +109,10 @@ class SecurityMiddleware(BaseHTTPMiddleware):
             is_excluded = (
                 path.startswith("/api/v1/webhooks") or
                 path.startswith("/api/v1/x402/verify") or
-                path.startswith("/api/v1/capi")
+                path.startswith("/api/v1/capi") or
+                # Anonymous, credential-free analytics beacons; the analytics
+                # router applies its own origin allowlist (incl. os/vlink hosts).
+                path == "/api/v1/analytics/events"
             )
             if not is_excluded:
                 origin = request.headers.get("origin")
