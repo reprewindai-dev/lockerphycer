@@ -297,6 +297,8 @@ app.include_router(billing.router, prefix="/api/v1/billing", tags=["Billing"])
 from apps.api.routers import entitlements as entitlements_router
 app.include_router(entitlements_router.router, prefix="/api/v1/entitlements", tags=["Entitlements"])
 app.include_router(entitlements_router.internal_router, prefix="/api/v1/internal", tags=["Internal"])
+from apps.api.routers import analytics as analytics_router
+app.include_router(analytics_router.router, prefix="/api/v1/analytics", tags=["Analytics"])
 app.include_router(business.router, prefix="/api/v1/business", tags=["Business Control Plane"])
 app.include_router(gpc.router, prefix="/api/v1/gpc", tags=["GPC"])
 app.include_router(gpc_proxy.router, prefix="/gpc-engine", tags=["GPC Proxy"])
