@@ -257,6 +257,29 @@ def test_register_binds_wallet_and_emits_event(base):
     assert "wallet_created" in _events(ws_id)
 
 
+def test_onboarding_counts_account_events_recorded_before_the_workspace(base):
+    from fastapi.testclient import TestClient
+    from sqlalchemy import select
+
+    from apps.api.main import app
+    from core.database.database import SessionLocal
+    from core.entitlements.activation import emit_activation_event
+    from db.models import User, Workspace
+
+    headers, ws_id = _seed()
+
+    async def verify_without_workspace():
+        async with SessionLocal() as db:
+            owner = (await db.execute(select(Workspace.owner_id).where(Workspace.id == ws_id))).scalar_one()
+            user_id = (await db.execute(select(User.id).where(User.email == owner))).scalar_one()
+            await emit_activation_event(db, "email_verified", user_id=user_id)
+
+    run(verify_without_workspace())
+    with TestClient(app) as client:
+        state = client.get("/api/v1/wallet/onboarding", headers=headers).json()
+        assert state["email_verified"] is True
+
+
 def test_nonce_is_single_use_and_workspace_bound(base):
     from fastapi.testclient import TestClient
 

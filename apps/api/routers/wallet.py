@@ -24,7 +24,7 @@ from eth_utils import to_checksum_address
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.routers.entitlements import _current_workspace
@@ -281,8 +281,12 @@ async def onboarding_state(
     ws = await _current_workspace(db, current_user, credentials)
     net = get_wallet_settings().network
     wallet = await _active_wallet(db, ws.id, net.chain_id)
+    # Signup and email verification happen before a workspace exists, so they are
+    # recorded against the user only; count those alongside the workspace's events.
     names = set((await db.execute(
-        select(ActivationEvent.event_name).where(ActivationEvent.workspace_id == ws.id))).scalars())
+        select(ActivationEvent.event_name).where(
+            or_(ActivationEvent.workspace_id == ws.id, ActivationEvent.user_id == current_user.id)
+        ))).scalars())
     return {
         "workspace_id": ws.id,
         "identity": True,
