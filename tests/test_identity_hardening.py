@@ -143,3 +143,55 @@ def test_external_engine_proxy_is_gone():
         for path in ("/gpc-engine/", "/gpc-engine/api/anything"):
             response = client.get(path, headers={"Authorization": "Bearer should-never-leave"}, follow_redirects=False)
             assert response.status_code == 404, (path, response.status_code)
+
+
+def test_rate_limit_bucket_cannot_be_chosen_with_forwarded_headers():
+    _set_test_env()
+    from starlette.requests import Request
+
+    from core.security.middleware import trusted_client_ip
+
+    def request(headers: dict, peer: str = "10.0.0.7") -> Request:
+        raw = [(k.lower().encode(), v.encode()) for k, v in headers.items()]
+        return Request({"type": "http", "headers": raw, "client": (peer, 5555), "method": "GET", "path": "/"})
+
+    # Caller-controlled headers never change the address.
+    assert trusted_client_ip(request({"X-Forwarded-For": "1.2.3.4", "X-Real-IP": "5.6.7.8"})) == "10.0.0.7"
+    # The Cloudflare edge header does, when it is a real address.
+    assert trusted_client_ip(request({"CF-Connecting-IP": "203.0.113.9", "X-Forwarded-For": "1.2.3.4"})) == "203.0.113.9"
+    assert trusted_client_ip(request({"CF-Connecting-IP": "not-an-ip"})) == "10.0.0.7"
+
+
+def test_machine_token_exchange_identifies_the_machine_and_always_expires():
+    _set_test_env()
+    from fastapi.testclient import TestClient
+    import base64
+    import json
+
+    from apps.api.main import app
+    from test_workspace_onboarding import _seed_user
+
+    _, token, workspace_id = _seed_user(workspace=True)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    with TestClient(app) as client:
+        for days in (0, -5, 100000):
+            rejected = client.post("/api/v1/machine-tokens", headers=headers, json={"name": "agent", "workspace_id": workspace_id, "expires_in_days": days})
+            assert rejected.status_code == 422, days
+
+        created = client.post("/api/v1/machine-tokens", headers=headers, json={"name": "agent-one", "workspace_id": workspace_id})
+        assert created.status_code == 200, created.text
+        machine = created.json()
+
+        exchanged = client.post("/api/v1/machine-tokens/exchange", headers={"Authorization": f"Bearer {machine['secret']}"})
+        assert exchanged.status_code == 200
+        payload = exchanged.json()["access_token"].split(".")[1]
+        claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+        assert claims["principal_type"] == "machine"
+        assert claims["machine_token_id"] == machine["id"]
+        assert claims["act"]["sub"] == f"machine:{machine['id']}"
+        assert claims["workspace_id"] == workspace_id
+
+        assert client.delete(f"/api/v1/machine-tokens/{machine['id']}", headers=headers).status_code == 200
+        revoked = client.post("/api/v1/machine-tokens/exchange", headers={"Authorization": f"Bearer {machine['secret']}"})
+        assert revoked.status_code == 401

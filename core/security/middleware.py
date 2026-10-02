@@ -2,6 +2,7 @@
 Security Middleware for FastAPI
 """
 
+import ipaddress
 from fastapi import Request, HTTPException, status
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response, JSONResponse
@@ -69,18 +70,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
     
     def _get_client_ip(self, request: Request) -> str:
         """Get client IP address from request"""
-        # Check for forwarded IP
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        if forwarded_for:
-            return forwarded_for.split(",")[0].strip()
-        
-        # Check for real IP
-        real_ip = request.headers.get("X-Real-IP")
-        if real_ip:
-            return real_ip.strip()
-        
-        # Fall back to client IP
-        return request.client.host if request.client else "unknown"
+        return trusted_client_ip(request)
     
     async def _validate_request(self, request: Request, client_ip: str):
         """Validate request for security threats, CSRF, and IDS alerts"""
@@ -242,6 +232,25 @@ def _is_authenticated_internal_call(request: Request) -> bool:
     expected = get_entitlement_settings().ENTITLEMENTS_INTERNAL_TOKEN
     supplied = request.headers.get("x-veklom-service-token")
     return bool(expected and supplied and hmac.compare_digest(supplied, expected))
+
+
+def trusted_client_ip(request: Request) -> str:
+    """The caller's address for rate limiting, lockout and audit.
+
+    Public traffic only reaches this service through the Cloudflare tunnel, and
+    Cloudflare overwrites CF-Connecting-IP at its edge, so that header is the one
+    a caller cannot choose. X-Forwarded-For and X-Real-IP are ignored: their first
+    entry is whatever the caller sent, which let anyone pick a fresh rate-limit
+    bucket per request. Without the Cloudflare header (service-to-service calls
+    on the internal network) the socket peer is used.
+    """
+    cf_ip = (request.headers.get("CF-Connecting-IP") or "").strip()
+    if cf_ip:
+        try:
+            return str(ipaddress.ip_address(cf_ip))
+        except ValueError:
+            pass
+    return request.client.host if request.client else "unknown"
 
 
 class RateLimiter:

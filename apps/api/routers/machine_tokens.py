@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import secrets
 import hashlib
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, or_, select
@@ -16,9 +16,10 @@ from db.models import User, Workspace, MachineToken
 router = APIRouter(prefix="/machine-tokens", tags=["Machine Tokens"])
 
 class MachineTokenCreateRequest(BaseModel):
-    name: str
+    name: str = Field(..., min_length=1, max_length=120)
     workspace_id: str
-    expires_in_days: int = 30
+    # A machine credential always expires; a year is the ceiling.
+    expires_in_days: int = Field(default=30, ge=1, le=365)
 
 class MachineTokenCreateResponse(BaseModel):
     id: str
@@ -174,7 +175,17 @@ async def exchange_machine_token(
     token.last_used_at = datetime.utcnow()
     await db.commit()
 
-    claims = {"sub": token.created_by, "workspace_id": token.workspace_id, "exp": datetime.utcnow() + timedelta(hours=1)}
+    # `sub` stays the owning account (the delegator) so workspace binding keeps
+    # working; `principal_type` and `act` say the caller is a machine and which
+    # credential it used, so a verifier never mistakes the agent for the person.
+    claims = {
+        "sub": token.created_by,
+        "workspace_id": token.workspace_id,
+        "principal_type": "machine",
+        "machine_token_id": token.id,
+        "act": {"sub": f"machine:{token.id}", "name": token.name},
+        "exp": datetime.utcnow() + timedelta(hours=1),
+    }
     access_token = create_access_token(claims)
     
     return MachineExchangeResponse(

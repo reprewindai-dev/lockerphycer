@@ -25,6 +25,7 @@ from core.config.settings import settings
 from core.database.database import get_db
 from core.entitlements.activation import emit_activation_event
 from core.security.mfa import verify_mfa_code
+from core.security.middleware import trusted_client_ip
 from core.security.auth import (
     create_access_token,
     create_email_verification_token,
@@ -60,8 +61,7 @@ def _credential_version(user: User) -> str:
 
 
 def _request_metadata(request: Request) -> tuple[str | None, str | None]:
-    forwarded_for = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
-    ip_address = forwarded_for or (request.client.host if request.client else None)
+    ip_address = trusted_client_ip(request)
     user_agent = request.headers.get("user-agent")
     return ip_address, user_agent[:512] if user_agent else None
 
