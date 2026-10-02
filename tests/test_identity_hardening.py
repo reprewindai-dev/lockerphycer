@@ -219,3 +219,66 @@ def test_mfa_setup_endpoints_work_over_http():
         confirmed = client.post("/api/v1/auth/mfa/confirm", headers=headers, json={"secret": secret, "code": pyotp.TOTP(secret).now()})
         assert confirmed.status_code == 200
         assert confirmed.json()["mfa_enabled"] is True and len(confirmed.json()["backup_codes"]) >= 5
+
+
+def _claims(token: str) -> dict:
+    import base64
+    import json
+
+    payload = token.split(".")[1]
+    return json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+
+
+def _seed_login_user(*, workspace: bool):
+    from core.database.database import Base, SessionLocal, engine
+    from core.security.auth import get_password_hash
+    from db.models import SubscriptionTier, User, UserRole, UserStatus, Workspace
+
+    email = f"claims-{uuid.uuid4().hex}@example.com"
+    workspace_id = str(uuid.uuid4()) if workspace else None
+
+    async def seed():
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        async with SessionLocal() as session:
+            session.add(User(email=email, username=f"claims-{uuid.uuid4().hex[:10]}",
+                             hashed_password=get_password_hash("CorrectHorseBatteryStaple1"),
+                             role=UserRole.USER, status=UserStatus.ACTIVE))
+            if workspace_id:
+                session.add(Workspace(id=workspace_id, owner_id=email, name="Claims Workspace",
+                                      slug=f"claims-{uuid.uuid4().hex[:10]}", tier=SubscriptionTier.FREE))
+            await session.commit()
+
+    asyncio.run(seed())
+    return email, workspace_id
+
+
+def test_login_and_refresh_tokens_carry_the_users_own_workspace():
+    """CAPPO takes the tenant from this claim. Two accounts must never share one."""
+    _set_test_env()
+    from fastapi.testclient import TestClient
+    from apps.api.main import app
+
+    alice, alice_ws = _seed_login_user(workspace=True)
+    bob, bob_ws = _seed_login_user(workspace=True)
+    newcomer, _ = _seed_login_user(workspace=False)
+
+    def login(client, email):
+        response = client.post("/api/v1/auth/login", json={"email": email, "password": "CorrectHorseBatteryStaple1"})
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    with TestClient(app) as client:
+        a, b, n = login(client, alice), login(client, bob), login(client, newcomer)
+
+        assert _claims(a["access_token"])["workspace_id"] == alice_ws
+        assert _claims(b["access_token"])["workspace_id"] == bob_ws
+        assert _claims(a["access_token"])["workspace_id"] != _claims(b["access_token"])["workspace_id"]
+
+        # No workspace yet: no workspace claim of any kind, and never the shared "default".
+        newcomer_claims = _claims(n["access_token"])
+        assert not any(key in newcomer_claims for key in ("workspace_id", "workspace", "tenant_id"))
+
+        refreshed = client.post("/api/v1/auth/refresh", headers={"Authorization": f"Bearer {a['refresh_token']}"})
+        assert refreshed.status_code == 200, refreshed.text
+        assert _claims(refreshed.json()["access_token"])["workspace_id"] == alice_ws

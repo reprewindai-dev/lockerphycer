@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database.database import get_db
-from core.security.auth import create_access_token, create_refresh_token
+from core.security.auth import create_access_token, create_refresh_token, session_claims
 from db.models import User, UserSession, UserRole, UserStatus
 from datetime import datetime, timedelta
 
@@ -207,8 +207,9 @@ async def github_callback(request: Request, db: AsyncSession = Depends(get_db)):
     user.last_login = datetime.utcnow()
     user.last_activity = datetime.utcnow()
     
-    access_token = create_access_token({"sub": user.email})
-    refresh_token = create_refresh_token({"sub": user.email})
+    claims = await session_claims(db, user)
+    access_token = create_access_token(claims)
+    refresh_token = create_refresh_token(claims)
 
     session = UserSession(
         user_id=user.id,

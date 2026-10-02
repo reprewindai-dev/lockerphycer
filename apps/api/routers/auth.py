@@ -27,6 +27,7 @@ from core.entitlements.activation import emit_activation_event
 from core.security.mfa import verify_mfa_code
 from core.security.middleware import trusted_client_ip
 from core.security.auth import (
+    session_claims,
     create_access_token,
     create_email_verification_token,
     create_password_reset_token,
@@ -224,8 +225,9 @@ async def login(
     user.last_login = now
     user.last_activity = now
 
-    access_token = create_access_token({"sub": user.email})
-    refresh_token = create_refresh_token({"sub": user.email})
+    claims = await session_claims(db, user)
+    access_token = create_access_token(claims)
+    refresh_token = create_refresh_token(claims)
     ip_address, user_agent = _request_metadata(request)
 
     session = UserSession(
@@ -340,8 +342,9 @@ async def refresh_token(
     if not session:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session revoked or expired")
 
-    access_token = create_access_token({"sub": user.email})
-    refresh_token = create_refresh_token({"sub": user.email})
+    claims = await session_claims(db, user)
+    access_token = create_access_token(claims)
+    refresh_token = create_refresh_token(claims)
     session.session_token = access_token
     session.refresh_token = refresh_token
     session.last_accessed = now
@@ -478,12 +481,12 @@ async def github_exchange(
     session_id = str(uuid.uuid4())
     
     access_token = create_access_token(
-        data={"sub": user.email, "session_id": session_id},
+        data={**(await session_claims(db, user)), "session_id": session_id},
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
     
     refresh_token = create_refresh_token(
-        data={"sub": user.email, "session_id": session_id},
+        data={**(await session_claims(db, user)), "session_id": session_id},
         expires_delta=timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
     )
     
