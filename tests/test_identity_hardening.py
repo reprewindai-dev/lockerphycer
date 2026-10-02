@@ -195,3 +195,27 @@ def test_machine_token_exchange_identifies_the_machine_and_always_expires():
         assert client.delete(f"/api/v1/machine-tokens/{machine['id']}", headers=headers).status_code == 200
         revoked = client.post("/api/v1/machine-tokens/exchange", headers={"Authorization": f"Bearer {machine['secret']}"})
         assert revoked.status_code == 401
+
+
+def test_mfa_setup_endpoints_work_over_http():
+    """The service functions were tested, the routes were not: setup failed in the
+    built image because the QR image library was never installed."""
+    _set_test_env()
+    import pyotp
+    from fastapi.testclient import TestClient
+    from apps.api.main import app
+
+    with TestClient(app) as client:
+        _, headers = _session(client)
+        setup = client.post("/api/v1/auth/mfa/setup", headers=headers)
+        assert setup.status_code == 200, setup.text
+        secret = setup.json()["secret"]
+        assert setup.json()["provisioning_uri"].startswith("otpauth://totp/")
+
+        qr = client.get("/api/v1/auth/mfa/setup/qr", headers=headers)
+        assert qr.status_code == 200 and qr.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+        assert client.post("/api/v1/auth/mfa/confirm", headers=headers, json={"secret": secret, "code": "000000"}).status_code == 400
+        confirmed = client.post("/api/v1/auth/mfa/confirm", headers=headers, json={"secret": secret, "code": pyotp.TOTP(secret).now()})
+        assert confirmed.status_code == 200
+        assert confirmed.json()["mfa_enabled"] is True and len(confirmed.json()["backup_codes"]) >= 5

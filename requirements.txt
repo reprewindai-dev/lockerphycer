@@ -16,7 +16,8 @@ pytest==9.0.3
 freezegun==1.5.1
 psutil==6.0.0
 pyotp==2.9.0
-qrcode
+qrcode==8.2
+pillow==11.3.0
 aiofiles==24.1.0
 cryptography>=50,<51
 alembic==1.13.1
