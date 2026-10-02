@@ -389,9 +389,52 @@ async def get_current_user_info(
     }
     return UserResponse(**payload)
 
-from pydantic import BaseModel
+import os
+import re
+
+import httpx
+from pydantic import BaseModel, Field
+
+
 class GitHubExchangeRequest(BaseModel):
-    github_username: str
+    github_access_token: str = Field(..., min_length=20, max_length=512)
+
+
+_GITHUB_LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$")
+
+
+def _github_http_client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(timeout=10)
+
+
+async def _github_login_for_app_token(access_token: str) -> str:
+    """Return the GitHub login a token belongs to, as attested by GitHub itself.
+
+    The token is checked against this deployment's own OAuth app (client id and
+    secret), so a caller-supplied username, or a token issued to some other app,
+    never yields a Veklom session.
+    """
+    client_id = os.environ.get("GITHUB_CLIENT_ID")
+    client_secret = os.environ.get("GITHUB_CLIENT_SECRET")
+    if not client_id or not client_secret:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="GitHub sign-in is not configured")
+    try:
+        async with _github_http_client() as client:
+            response = await client.post(
+                f"https://api.github.com/applications/{client_id}/token",
+                auth=(client_id, client_secret),
+                headers={"Accept": "application/vnd.github+json"},
+                json={"access_token": access_token},
+            )
+    except httpx.HTTPError:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="GitHub verification unavailable")
+    if response.status_code != 200:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="GitHub token was not issued to this application")
+    login = ((response.json() or {}).get("user") or {}).get("login")
+    if not isinstance(login, str) or not _GITHUB_LOGIN_RE.match(login):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="GitHub identity could not be verified")
+    return login
+
 
 @router.post("/github/exchange")
 async def github_exchange(
@@ -399,13 +442,14 @@ async def github_exchange(
     request: Request,
     db: AsyncSession = Depends(get_db)
 ):
-    normalized_email = f"{payload.github_username}@machine.veklom.com"
+    github_username = await _github_login_for_app_token(payload.github_access_token)
+    normalized_email = f"{github_username.lower()}@machine.veklom.com"
     user = (await db.execute(select(User).where(User.email == normalized_email))).scalars().first()
     if not user:
         user = User(
             email=normalized_email,
-            username=payload.github_username,
-            full_name=payload.github_username,
+            username=github_username,
+            full_name=github_username,
             hashed_password="github_oauth_no_password",
             role="user"
         )
