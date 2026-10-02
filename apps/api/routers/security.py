@@ -15,6 +15,23 @@ from apps.api.schemas.security import SecurityEventResponse, SecurityEventCreate
 
 router = APIRouter()
 
+_SECURITY_STAFF_ROLES = {"admin", "security_analyst"}
+
+
+def _is_security_staff(user: User) -> bool:
+    role = user.role.value if hasattr(user.role, "value") else str(user.role)
+    return role in _SECURITY_STAFF_ROLES
+
+
+def _own_events(user: User):
+    """Events a non-staff account may see: only the ones recorded against it."""
+    return or_(SecurityEvent.user_id == user.id, SecurityEvent.user_id == user.email)
+
+
+def _require_security_staff(user: User) -> None:
+    if not _is_security_staff(user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
+
 
 @router.get("/events", response_model=List[SecurityEventResponse])
 async def list_security_events(
@@ -35,6 +52,8 @@ async def list_security_events(
     
     # Apply filters
     conditions = []
+    if not _is_security_staff(current_user):
+        conditions.append(_own_events(current_user))
     
     if threat_type:
         conditions.append(SecurityEvent.threat_type == threat_type)
@@ -76,6 +95,9 @@ async def get_security_event(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Security event not found"
         )
+    if not _is_security_staff(current_user) and event.user_id not in (current_user.id, current_user.email):
+        # Same answer as a missing event, so ids cannot be probed across accounts.
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Security event not found")
     
     return SecurityEventResponse.from_orm(event)
 
@@ -88,8 +110,11 @@ async def create_security_event(
 ):
     """Create new security event"""
     
+    # Only security staff may record an event against another account.
+    subject_id = event_data.user_id if _is_security_staff(current_user) else current_user.id
+
     event = SecurityEvent(
-        user_id=event_data.user_id,
+        user_id=subject_id,
         event_type=event_data.event_type,
         threat_type=event_data.threat_type,
         security_level=event_data.security_level,
@@ -116,7 +141,8 @@ async def assign_security_event(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Assign security event to user"""
+    """Assign security event to user (security staff only)"""
+    _require_security_staff(current_user)
     
     event = await db.get(SecurityEvent, event_id)
     if not event:
@@ -147,7 +173,8 @@ async def resolve_security_event(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Resolve security event"""
+    """Resolve security event (security staff only)"""
+    _require_security_staff(current_user)
     
     event = await db.get(SecurityEvent, event_id)
     if not event:
@@ -172,13 +199,17 @@ async def get_threat_stats(
 ):
     """Get threat statistics"""
     
+    # Non-staff accounts get figures for their own events only.
+    scope = [] if _is_security_staff(current_user) else [_own_events(current_user)]
+
     # Total threats
-    total_result = await db.execute(select(func.count()).select_from(SecurityEvent))
+    total_result = await db.execute(select(func.count()).select_from(SecurityEvent).where(*scope))
     total_threats = total_result.scalar()
     
     # Threats by type
     threat_types_result = await db.execute(
         select(SecurityEvent.threat_type, func.count())
+        .where(*scope)
         .group_by(SecurityEvent.threat_type)
     )
     threat_types = dict(threat_types_result.all())
@@ -186,6 +217,7 @@ async def get_threat_stats(
     # Threats by severity
     severity_result = await db.execute(
         select(SecurityEvent.security_level, func.count())
+        .where(*scope)
         .group_by(SecurityEvent.security_level)
     )
     severity_counts = dict(severity_result.all())
@@ -194,14 +226,14 @@ async def get_threat_stats(
     yesterday = datetime.utcnow() - timedelta(days=1)
     recent_result = await db.execute(
         select(func.count()).select_from(SecurityEvent)
-        .where(SecurityEvent.created_at >= yesterday)
+        .where(SecurityEvent.created_at >= yesterday, *scope)
     )
     recent_threats = recent_result.scalar()
     
     # Open threats
     open_result = await db.execute(
         select(func.count()).select_from(SecurityEvent)
-        .where(SecurityEvent.status == "open")
+        .where(SecurityEvent.status == "open", *scope)
     )
     open_threats = open_result.scalar()
     
@@ -298,11 +330,10 @@ async def get_security_dashboard(
     """Get security dashboard data"""
     
     # Get recent events
-    recent_result = await db.execute(
-        select(SecurityEvent)
-        .order_by(desc(SecurityEvent.created_at))
-        .limit(10)
-    )
+    recent_query = select(SecurityEvent).order_by(desc(SecurityEvent.created_at)).limit(10)
+    if not _is_security_staff(current_user):
+        recent_query = recent_query.where(_own_events(current_user))
+    recent_result = await db.execute(recent_query)
     recent_events = recent_result.scalars().all()
     
     # Get threat stats

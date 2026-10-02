@@ -24,6 +24,7 @@ from apps.email.sender import send_password_reset, send_verify_email, send_welco
 from core.config.settings import settings
 from core.database.database import get_db
 from core.entitlements.activation import emit_activation_event
+from core.security.mfa import verify_mfa_code
 from core.security.auth import (
     create_access_token,
     create_email_verification_token,
@@ -204,6 +205,19 @@ async def login(
             user.status = UserStatus.LOCKED
         await db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    # Second factor. An account with MFA enabled gets no session from a password
+    # alone; a wrong code counts as a failed attempt exactly like a wrong password.
+    if user.mfa_enabled:
+        if not login_data.mfa_code:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="MFA code required")
+        if not await verify_mfa_code(db, user, login_data.mfa_code.strip()):
+            user.failed_login_attempts += 1
+            if user.failed_login_attempts >= settings.MAX_FAILED_LOGIN_ATTEMPTS:
+                user.account_locked_until = now + timedelta(minutes=settings.ACCOUNT_LOCKOUT_DURATION_MINUTES)
+                user.status = UserStatus.LOCKED
+            await db.commit()
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     user.failed_login_attempts = 0
     user.account_locked_until = None

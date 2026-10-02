@@ -8,6 +8,7 @@ from datetime import datetime
 import uuid
 
 from core.database.database import get_db
+from core.security.auth import require_admin
 from db.models import MarketplaceListing
 
 router = APIRouter()
@@ -107,7 +108,7 @@ async def create_listing(
 
 
 @router.put("/listings/{listing_id}/publish")
-async def publish_listing(listing_id: str, db: AsyncSession = Depends(get_db)):
+async def publish_listing(listing_id: str, db: AsyncSession = Depends(get_db), _admin: str = Depends(require_admin)):
     listing = await db.get(MarketplaceListing, listing_id)
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")

@@ -8,6 +8,7 @@ from datetime import datetime
 import uuid
 
 from core.database.database import get_db
+from core.security.auth import require_admin
 from db.models import GPCPlan
 
 router = APIRouter()
@@ -126,7 +127,7 @@ async def execute_plan(plan_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/plans/{plan_id}/approve")
-async def approve_plan(plan_id: str, db: AsyncSession = Depends(get_db)):
+async def approve_plan(plan_id: str, db: AsyncSession = Depends(get_db), _admin: str = Depends(require_admin)):
     plan = await db.get(GPCPlan, plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")

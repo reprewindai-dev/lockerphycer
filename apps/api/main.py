@@ -5,7 +5,9 @@ Backend source of truth: lockerphycer
 
 from pathlib import Path
 
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import Depends, FastAPI, Request, HTTPException
+
+from core.security.auth import get_current_user
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse, FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -95,7 +97,7 @@ def _setup_otel():
 _setup_otel()
 
 from apps.api.routers import auth, users, security, monitoring, ai
-from apps.api.routers import workspace, marketplace, billing, business, gpc, gpc_proxy, platform_pulse, feedback, command_center, protocol, health_dependencies
+from apps.api.routers import workspace, marketplace, billing, business, gpc, platform_pulse, feedback, command_center, protocol, health_dependencies
 from apps.api.routers.verticals import router as verticals_router
 from apps.api.routers import terminal_ws
 from apps.api.routers import agents as agents_router
@@ -292,7 +294,7 @@ app.include_router(verticals_router, prefix="/api/v1/verticals", tags=["Vertical
 app.include_router(workspace.router, prefix="/api/v1/workspace", tags=["Workspace"])
 from apps.api.routers import machine_tokens
 app.include_router(machine_tokens.router, prefix="/api/v1", tags=["Machine Tokens"])
-app.include_router(marketplace.router, prefix="/api/v1/marketplace", tags=["Marketplace"])
+app.include_router(marketplace.router, prefix="/api/v1/marketplace", tags=["Marketplace"], dependencies=[Depends(get_current_user)])
 app.include_router(billing.router, prefix="/api/v1/billing", tags=["Billing"])
 from apps.api.routers import entitlements as entitlements_router
 app.include_router(entitlements_router.router, prefix="/api/v1/entitlements", tags=["Entitlements"])
@@ -302,10 +304,9 @@ app.include_router(analytics_router.router, prefix="/api/v1/analytics", tags=["A
 from apps.api.routers import wallet as wallet_router
 app.include_router(wallet_router.router, prefix="/api/v1/wallet", tags=["Wallet"])
 app.include_router(business.router, prefix="/api/v1/business", tags=["Business Control Plane"])
-app.include_router(gpc.router, prefix="/api/v1/gpc", tags=["GPC"])
-app.include_router(gpc_proxy.router, prefix="/gpc-engine", tags=["GPC Proxy"])
+app.include_router(gpc.router, prefix="/api/v1/gpc", tags=["GPC"], dependencies=[Depends(get_current_user)])
 app.include_router(platform_pulse.router, prefix="/api/v1/platform", tags=["Platform"])
-app.include_router(feedback.router, prefix="/api/v1/feedback", tags=["Feedback"])
+app.include_router(feedback.router, prefix="/api/v1/feedback", tags=["Feedback"], dependencies=[Depends(get_current_user)])
 app.include_router(command_center.router, prefix="/api/v1/command-center", tags=["Command Center"])
 app.include_router(agents_router.router, prefix="/api/v1/agents", tags=["Agent Workforce"])
 app.include_router(actors_router.router, prefix="/api/v1/actors", tags=["Execution Packs"])
