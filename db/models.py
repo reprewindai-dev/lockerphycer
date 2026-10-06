@@ -114,8 +114,10 @@ class UserSession(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     user_id: Mapped[str] = mapped_column(String(255), index=True)
-    session_token: Mapped[str] = mapped_column(Text, unique=True)
-    refresh_token: Mapped[str] = mapped_column(Text)
+    # Only SHA-256 digests of the bearer tokens are kept (core.security.auth.hash_token):
+    # a database read must not yield a replayable login.
+    session_token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    refresh_token_hash: Mapped[str] = mapped_column(String(64), index=True)
     ip_address: Mapped[str | None] = mapped_column(String(64))
     user_agent: Mapped[str | None] = mapped_column(String(512))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

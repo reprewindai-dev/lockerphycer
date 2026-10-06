@@ -35,6 +35,7 @@ from core.security.auth import (
     create_refresh_token,
     get_current_user,
     get_password_hash,
+    hash_token,
     verify_password,
     verify_token,
 )
@@ -229,8 +230,8 @@ async def login(
 
     session = UserSession(
         user_id=user.id,
-        session_token=access_token,
-        refresh_token=refresh_token,
+        session_token_hash=hash_token(access_token),
+        refresh_token_hash=hash_token(refresh_token),
         ip_address=ip_address,
         user_agent=user_agent,
         expires_at=now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
@@ -330,7 +331,7 @@ async def refresh_token(
     now = datetime.utcnow()
     session_result = await db.execute(
         select(UserSession).where(
-            UserSession.refresh_token == credentials.credentials,
+            UserSession.refresh_token_hash == hash_token(credentials.credentials),
             UserSession.user_id == user.id,
             UserSession.is_active == True,
             UserSession.expires_at > now,
@@ -343,8 +344,8 @@ async def refresh_token(
     claims = await session_claims(db, user)
     access_token = create_access_token(claims)
     refresh_token = create_refresh_token(claims)
-    session.session_token = access_token
-    session.refresh_token = refresh_token
+    session.session_token_hash = hash_token(access_token)
+    session.refresh_token_hash = hash_token(refresh_token)
     session.last_accessed = now
     session.expires_at = now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
     user.last_activity = now
@@ -369,7 +370,9 @@ async def logout(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: AsyncSession = Depends(get_db),
 ):
-    session = await db.execute(select(UserSession).where(UserSession.session_token == credentials.credentials))
+    session = await db.execute(
+        select(UserSession).where(UserSession.session_token_hash == hash_token(credentials.credentials))
+    )
     session_obj = session.scalar_one_or_none()
     if session_obj:
         session_obj.is_active = False
@@ -491,8 +494,8 @@ async def github_exchange(
     session = UserSession(
         id=session_id,
         user_id=user.id,
-        session_token=access_token,
-        refresh_token=refresh_token,
+        session_token_hash=hash_token(access_token),
+        refresh_token_hash=hash_token(refresh_token),
         ip_address=ip_address,
         user_agent=user_agent,
         expires_at=now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)

@@ -1,5 +1,6 @@
 """Authentication, authorization, and password utilities."""
 
+import hashlib
 from datetime import datetime, timedelta
 from typing import Optional
 from uuid import uuid4
@@ -24,6 +25,16 @@ def get_password_hash(password: str) -> str:
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
+
+
+def hash_token(token: str) -> str:
+    """Fingerprint of a bearer token for storage and look-up.
+
+    Session rows keep only this digest, so a copy of the database cannot be
+    replayed as a login. Tokens are high-entropy signed JWTs, so an unsalted
+    SHA-256 is enough: there is nothing to guess.
+    """
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def _create_token(data: dict, token_type: str, expires_delta: timedelta) -> str:
@@ -136,7 +147,7 @@ async def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account is not active")
     session_result = await db.execute(
         select(UserSession).where(
-            UserSession.session_token == credentials.credentials,
+            UserSession.session_token_hash == hash_token(credentials.credentials),
             UserSession.user_id == user.id,
             UserSession.is_active == True,
             UserSession.expires_at > datetime.utcnow(),

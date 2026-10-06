@@ -102,7 +102,7 @@ def run(coro):
 
 def _seed(created=None):
     from core.database.database import Base, SessionLocal, engine
-    from core.security.auth import create_access_token, create_refresh_token, get_password_hash
+    from core.security.auth import create_access_token, create_refresh_token, get_password_hash, hash_token
     from db.models import SubscriptionTier, User, UserRole, UserSession, UserStatus, Workspace
 
     email = f"stripe-{uuid.uuid4().hex}@example.com"
@@ -118,8 +118,8 @@ def _seed(created=None):
             db.add(user)
             await db.flush()
             token = create_access_token({"sub": email, "workspace_id": ws_id})
-            db.add(UserSession(user_id=user.id, session_token=token,
-                               refresh_token=create_refresh_token({"sub": email}),
+            db.add(UserSession(user_id=user.id, session_token_hash=hash_token(token),
+                               refresh_token_hash=hash_token(create_refresh_token({"sub": email})),
                                expires_at=datetime.utcnow() + timedelta(hours=1)))
             db.add(Workspace(id=ws_id, owner_id=email, name="s", slug=f"s-{uuid.uuid4().hex[:10]}",
                              tier=SubscriptionTier.FREE, created_at=created or datetime.utcnow()))

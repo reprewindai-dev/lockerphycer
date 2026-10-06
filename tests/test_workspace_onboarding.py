@@ -19,6 +19,7 @@ def _seed_user(*, admin: bool = False, workspace: bool = False):
         create_access_token,
         create_refresh_token,
         get_password_hash,
+        hash_token,
     )
     from db.models import (
         SubscriptionTier,
@@ -50,8 +51,8 @@ def _seed_user(*, admin: bool = False, workspace: bool = False):
             session.add(
                 UserSession(
                     user_id=user.id,
-                    session_token=access_token,
-                    refresh_token=refresh_token,
+                    session_token_hash=hash_token(access_token),
+                    refresh_token_hash=hash_token(refresh_token),
                     ip_address="127.0.0.1",
                     user_agent="pytest",
                     expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=1),

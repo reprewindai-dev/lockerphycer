@@ -18,6 +18,7 @@ from core.security.auth import (
     create_access_token,
     create_refresh_token,
     get_current_user,
+    hash_token,
     require_admin,
 )
 from core.entitlements.activation import emit_activation_event
@@ -55,7 +56,7 @@ async def _bind_session_to_workspace(
     session = (
         await db.execute(
             select(UserSession).where(
-                UserSession.session_token == credentials.credentials,
+                UserSession.session_token_hash == hash_token(credentials.credentials),
                 UserSession.user_id == user.id,
                 UserSession.is_active == True,
             )
@@ -68,8 +69,8 @@ async def _bind_session_to_workspace(
     access_token = create_access_token(claims)
     refresh_token = create_refresh_token(claims)
     now = datetime.utcnow()
-    session.session_token = access_token
-    session.refresh_token = refresh_token
+    session.session_token_hash = hash_token(access_token)
+    session.refresh_token_hash = hash_token(refresh_token)
     session.last_accessed = now
     session.expires_at = now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
     await db.commit()

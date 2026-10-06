@@ -335,7 +335,7 @@ def test_usage_summary_counts():
 
 def _seed_session(workspace_created: datetime | None = None):
     from core.database.database import SessionLocal
-    from core.security.auth import create_access_token, create_refresh_token, get_password_hash
+    from core.security.auth import create_access_token, create_refresh_token, get_password_hash, hash_token
     from db.models import SubscriptionTier, User, UserRole, UserSession, UserStatus, Workspace
 
     email = f"ent-{uuid.uuid4().hex}@example.com"
@@ -350,8 +350,8 @@ def _seed_session(workspace_created: datetime | None = None):
             db.add(user)
             await db.flush()
             token = create_access_token({"sub": email, "workspace_id": ws_id})
-            db.add(UserSession(user_id=user.id, session_token=token,
-                               refresh_token=create_refresh_token({"sub": email}),
+            db.add(UserSession(user_id=user.id, session_token_hash=hash_token(token),
+                               refresh_token_hash=hash_token(create_refresh_token({"sub": email})),
                                expires_at=datetime.utcnow() + timedelta(hours=1)))
             db.add(Workspace(id=ws_id, owner_id=email, name="w", slug=f"w-{uuid.uuid4().hex[:10]}",
                              tier=SubscriptionTier.FREE,

@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config.settings import settings
 from core.database.database import get_db
-from core.security.auth import create_access_token, create_refresh_token, session_claims
+from core.security.auth import create_access_token, create_refresh_token, hash_token, session_claims
 from core.security.middleware import allowed_request_origins, trusted_client_ip
 from db.models import User, UserSession, UserRole, UserStatus
 from datetime import datetime, timedelta
@@ -259,8 +259,8 @@ async def github_callback(request: Request, db: AsyncSession = Depends(get_db)):
 
     session = UserSession(
         user_id=user.id,
-        session_token=access_token,
-        refresh_token=refresh_token,
+        session_token_hash=hash_token(access_token),
+        refresh_token_hash=hash_token(refresh_token),
         ip_address=trusted_client_ip(request),
         user_agent="GitHub OAuth",
         expires_at=datetime.utcnow() + timedelta(minutes=60),

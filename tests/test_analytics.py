@@ -261,7 +261,7 @@ def test_bot_user_agents_are_ignored(client):
 
 def _seed_user(role="user", created_at=None, workspace=True):
     from core.database.database import Base, SessionLocal, engine
-    from core.security.auth import create_access_token, create_refresh_token, get_password_hash
+    from core.security.auth import create_access_token, create_refresh_token, get_password_hash, hash_token
     from db.models import SubscriptionTier, User, UserRole, UserSession, UserStatus, Workspace
 
     email = f"an-{uuid.uuid4().hex}@example.com"
@@ -278,8 +278,8 @@ def _seed_user(role="user", created_at=None, workspace=True):
             db.add(user)
             await db.flush()
             token = create_access_token({"sub": email})
-            db.add(UserSession(user_id=user.id, session_token=token,
-                               refresh_token=create_refresh_token({"sub": email}),
+            db.add(UserSession(user_id=user.id, session_token_hash=hash_token(token),
+                               refresh_token_hash=hash_token(create_refresh_token({"sub": email})),
                                expires_at=datetime.utcnow() + timedelta(hours=1)))
             if workspace:
                 db.add(Workspace(id=ws_id, owner_id=email, name="w", slug=f"w-{uuid.uuid4().hex[:10]}",

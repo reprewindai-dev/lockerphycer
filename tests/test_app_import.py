@@ -98,7 +98,7 @@ def test_business_control_plane_endpoints():
 
     from apps.api.main import app
     from core.database.database import SessionLocal
-    from core.security.auth import create_access_token, create_refresh_token, get_password_hash
+    from core.security.auth import create_access_token, create_refresh_token, get_password_hash, hash_token
     from db.models import SubscriptionTier, User, UserRole, UserSession, UserStatus, Workspace
 
     email = f"admin-{uuid.uuid4()}@example.com"
@@ -120,8 +120,8 @@ def test_business_control_plane_endpoints():
             session.add(
                 UserSession(
                     user_id=user.id,
-                    session_token=access_token,
-                    refresh_token=refresh_token,
+                    session_token_hash=hash_token(access_token),
+                    refresh_token_hash=hash_token(refresh_token),
                     ip_address="127.0.0.1",
                     user_agent="pytest",
                     expires_at=datetime.utcnow() + timedelta(hours=1),

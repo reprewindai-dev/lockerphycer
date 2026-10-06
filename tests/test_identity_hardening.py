@@ -296,3 +296,58 @@ def test_login_and_refresh_tokens_carry_the_users_own_workspace():
         refreshed = client.post("/api/v1/auth/refresh", headers={"Authorization": f"Bearer {a['refresh_token']}"})
         assert refreshed.status_code == 200, refreshed.text
         assert _claims(refreshed.json()["access_token"])["workspace_id"] == alice_ws
+
+
+def test_session_rows_hold_token_digests_not_bearer_tokens():
+    """A read of user_sessions must not yield a replayable login, while login,
+    refresh, rotation and logout keep their contract."""
+    _set_test_env()
+    import hashlib
+
+    from fastapi.testclient import TestClient
+    from sqlalchemy import text
+
+    from apps.api.main import app
+    from core.database.database import SessionLocal
+
+    email, _ = _seed_login_user(workspace=False)
+
+    async def rows():
+        async with SessionLocal() as session:
+            result = await session.execute(text(
+                "SELECT s.* FROM user_sessions s JOIN users u ON u.id = s.user_id WHERE u.email = :e"
+            ), {"e": email})
+            return [dict(row._mapping) for row in result]
+
+    def digest(token):
+        return hashlib.sha256(token.encode()).hexdigest()
+
+    with TestClient(app) as client:
+        tokens = client.post("/api/v1/auth/login", json={"email": email, "password": "CorrectHorseBatteryStaple1"}).json()
+        stored = asyncio.run(rows())
+        assert len(stored) == 1
+        row = stored[0]
+        assert "session_token" not in row and "refresh_token" not in row
+        assert row["session_token_hash"] == digest(tokens["access_token"])
+        assert row["refresh_token_hash"] == digest(tokens["refresh_token"])
+        assert tokens["access_token"] not in map(str, row.values())
+
+        headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+        assert client.get("/api/v1/auth/me", headers=headers).status_code == 200
+        # A digest is not a credential.
+        assert client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {row['session_token_hash']}"}).status_code == 401
+
+        refreshed = client.post("/api/v1/auth/refresh", headers={"Authorization": f"Bearer {tokens['refresh_token']}"})
+        assert refreshed.status_code == 200, refreshed.text
+        new = refreshed.json()
+        row = asyncio.run(rows())[0]
+        assert row["session_token_hash"] == digest(new["access_token"])
+        assert row["refresh_token_hash"] == digest(new["refresh_token"])
+        # Rotation: the spent refresh token and the replaced access token no longer work.
+        assert client.post("/api/v1/auth/refresh", headers={"Authorization": f"Bearer {tokens['refresh_token']}"}).status_code == 401
+        assert client.get("/api/v1/auth/me", headers=headers).status_code == 401
+
+        new_headers = {"Authorization": f"Bearer {new['access_token']}"}
+        assert client.get("/api/v1/auth/me", headers=new_headers).status_code == 200
+        assert client.post("/api/v1/auth/logout", headers=new_headers).status_code == 200
+        assert client.get("/api/v1/auth/me", headers=new_headers).status_code == 401
