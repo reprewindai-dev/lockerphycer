@@ -7,7 +7,7 @@ import hashlib
 import hmac
 import logging
 import time
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 from fastapi import APIRouter, Depends, Request, Response, HTTPException, status
 from fastapi.responses import RedirectResponse
@@ -15,8 +15,10 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.config.settings import settings
 from core.database.database import get_db
 from core.security.auth import create_access_token, create_refresh_token, session_claims
+from core.security.middleware import allowed_request_origins, trusted_client_ip
 from db.models import User, UserSession, UserRole, UserStatus
 from datetime import datetime, timedelta
 
@@ -28,6 +30,28 @@ CLIENT_SECRET = os.environ.get("GITHUB_CLIENT_SECRET")
 # The callback URL we tell GitHub to return to. Must match GitHub OAuth App config.
 CALLBACK_URL = os.environ.get("GITHUB_CALLBACK_URL", "https://veklom.com/api/v1/auth/github/callback")
 SESSION_COOKIE = os.environ.get("VEKLOM_SESSION_COOKIE_NAME", "veklom_session")
+# Binds the signed OAuth state to the browser that started the login.
+NONCE_COOKIE = "veklom_oauth_nonce"
+STATE_TTL_SECONDS = 15 * 60
+
+
+def _public_base_url() -> str:
+    return os.environ.get("PUBLIC_FRONTEND_URL", "https://veklom.com").rstrip("/")
+
+
+def _allowed_redirect_origins() -> set[str]:
+    """Origins a post-login redirect may land on: the configured frontend and
+    the CORS allowlist (LOCKERPHYCER_CORS_ORIGINS plus the known Veklom hosts)."""
+    return allowed_request_origins() | {_public_base_url()}
+
+
+def _cookie_secure() -> bool:
+    return settings.ENVIRONMENT == "production"
+
+
+def _nonce_cookie_path(request: Request) -> str:
+    # The router prefix (…/auth/github) covers both /login and /callback.
+    return request.url.path.rsplit("/", 1)[0] or "/"
 
 
 @router.get("/config-status")
@@ -45,11 +69,17 @@ async def github_config_status():
 
 
 def safe_return_to(value: str | None) -> str:
-    if not value:
+    """A relative path on the frontend, or an absolute URL on an allowed origin;
+    anything else falls back to /os."""
+    if not value or "\\" in value:
         return "/os"
-    if not value.startswith("/") or value.startswith("//") or "\\" in value:
-        return "/os"
-    return value
+    if value.startswith("/"):
+        return "/os" if value.startswith("//") else value
+    parts = urlsplit(value)
+    if parts.scheme in ("http", "https") and parts.netloc:
+        if f"{parts.scheme}://{parts.netloc}" in _allowed_redirect_origins():
+            return value
+    return "/os"
 
 def sign_state(next_url: str, nonce: str) -> str:
     if not CLIENT_SECRET:
@@ -60,20 +90,27 @@ def sign_state(next_url: str, nonce: str) -> str:
     return base64.urlsafe_b64encode(json.dumps(state_obj, separators=(',', ':')).encode()).decode()
 
 def verify_state(state: str) -> dict | None:
+    """The signed state's ``next`` and ``nonce``; None when the signature,
+    shape or age is wrong. The caller still has to match the nonce against
+    the browser's cookie."""
     try:
         if not CLIENT_SECRET:
             return None
         parsed = json.loads(base64.urlsafe_b64decode(state).decode())
         payload = parsed.get("payload")
         sig = parsed.get("sig")
+        if not isinstance(payload, str) or not isinstance(sig, str):
+            return None
         expected = hmac.new(CLIENT_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()
-        if sig != expected:
+        if not hmac.compare_digest(sig, expected):
             return None
         data = json.loads(payload)
-        # Reject state older than 15 minutes
-        if int(time.time() * 1000) - data.get("ts", 0) > 15 * 60 * 1000:
+        nonce = data.get("nonce")
+        if not isinstance(nonce, str) or not nonce:
             return None
-        return {"next": data.get("next", "/os")}
+        if int(time.time() * 1000) - int(data.get("ts", 0)) > STATE_TTL_SECONDS * 1000:
+            return None
+        return {"next": data.get("next", "/os"), "nonce": nonce}
     except Exception:
         return None
 
@@ -85,10 +122,10 @@ def derive_password(github_id: int) -> str:
 
 def login_redirect(destination: str, request: Request, error: str = None) -> RedirectResponse:
     # OAuth callbacks arrive from GitHub, so Origin/Referer are not trusted as
-    # the Veklom return host. Keep every browser-visible redirect on the public
-    # application origin configured by the deployment.
-    base_url = os.environ.get("PUBLIC_FRONTEND_URL", "https://veklom.com").rstrip("/")
-    url = f"{base_url}{destination}" if destination.startswith("/") else destination
+    # the Veklom return host. Relative destinations land on the configured
+    # public frontend; absolute ones must be on an allowed origin.
+    destination = safe_return_to(destination)
+    url = f"{_public_base_url()}{destination}" if destination.startswith("/") else destination
     if error:
         url += f"?github_error_description={error[:240]}"
     return RedirectResponse(url=url, status_code=302)
@@ -110,7 +147,17 @@ async def github_login(request: Request, next: str = "/os"):
         "state": state
     }
     github_url = f"https://github.com/login/oauth/authorize?{urlencode(params)}"
-    return RedirectResponse(url=github_url, status_code=302)
+    response = RedirectResponse(url=github_url, status_code=302)
+    response.set_cookie(
+        key=NONCE_COOKIE,
+        value=nonce,
+        httponly=True,
+        secure=_cookie_secure(),
+        samesite="lax",
+        path=_nonce_cookie_path(request),
+        max_age=STATE_TTL_SECONDS,
+    )
+    return response
 
 
 @router.get("/callback")
@@ -129,6 +176,9 @@ async def github_callback(request: Request, db: AsyncSession = Depends(get_db)):
     state_data = verify_state(state_param)
     if not state_data:
         return login_redirect("/login", request, "Invalid or expired OAuth state. Please try again.")
+    nonce_cookie = request.cookies.get(NONCE_COOKIE) or ""
+    if not hmac.compare_digest(nonce_cookie, state_data["nonce"]):
+        return login_redirect("/login", request, "OAuth state did not match this browser. Please try again.")
 
     # Step 1: Exchange code
     async with httpx.AsyncClient() as client:
@@ -211,41 +261,40 @@ async def github_callback(request: Request, db: AsyncSession = Depends(get_db)):
         user_id=user.id,
         session_token=access_token,
         refresh_token=refresh_token,
-        ip_address="127.0.0.1",
+        ip_address=trusted_client_ip(request),
         user_agent="GitHub OAuth",
         expires_at=datetime.utcnow() + timedelta(minutes=60),
     )
     db.add(session)
     await db.commit()
 
-    # Step 4: Redirect to frontend with cookies
-    destination = state_data["next"]
-    if not destination.startswith("/"):
-        destination = "/os"
-        
-    response = login_redirect(destination, request)
-    
+    # Step 4: Redirect to frontend with cookies (login_redirect re-validates
+    # the destination against the allowed origins).
+    response = login_redirect(state_data["next"], request)
+    response.delete_cookie(key=NONCE_COOKIE, path=_nonce_cookie_path(request))
+
     # Set HttpOnly Session Cookie
     response.set_cookie(
         key=SESSION_COOKIE,
         value=access_token,
         httponly=True,
-        secure=True,
+        secure=_cookie_secure(),
         samesite="lax",
         path="/",
         max_age=7 * 24 * 60 * 60
     )
-    
-    # Set readable bearer token for frontend
+
+    # Short-lived bearer handoff. HttpOnly: scripts on the page must not be
+    # able to read the session token.
     response.set_cookie(
         key="veklom_github_token",
         value=access_token,
-        httponly=False,
-        secure=True,
+        httponly=True,
+        secure=_cookie_secure(),
         samesite="lax",
         path="/",
         max_age=60
     )
-    
+
     return response
 
