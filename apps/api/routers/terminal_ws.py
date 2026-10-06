@@ -61,6 +61,26 @@ async def _broadcast(terminal_type: str, payload: dict):
         _connections[terminal_type].discard(ws)
 
 
+async def _session_is_live(token: str) -> bool:
+    from sqlalchemy import select
+
+    from core.database.database import SessionLocal
+    from core.security.auth import hash_token
+    from db.models import UserSession
+
+    async with SessionLocal() as db:
+        row = (
+            await db.execute(
+                select(UserSession.id).where(
+                    UserSession.session_token_hash == hash_token(token),
+                    UserSession.is_active == True,  # noqa: E712
+                    UserSession.expires_at > datetime.utcnow(),
+                )
+            )
+        ).first()
+    return row is not None
+
+
 @router.websocket("/ws/terminal")
 async def terminal_websocket(
     websocket: WebSocket,
@@ -89,6 +109,12 @@ async def terminal_websocket(
             return
     except Exception as e:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason=f"Invalid token: {e}")
+        return
+
+    # A signed token is not enough: the session behind it must still be live,
+    # so logout and admin revocation also close the operator terminal.
+    if not await _session_is_live(token):
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Session revoked or expired")
         return
 
     if terminal not in _connections:
