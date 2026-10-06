@@ -251,55 +251,32 @@ async def get_security_controls(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get security controls status"""
-    
-    # Mock security controls (in production, these would come from database)
-    controls = [
-        {
-            "name": "mfa_enabled",
-            "display_name": "Multi-Factor Authentication",
-            "description": "Require MFA for all users",
-            "enabled": True,
-            "category": "authentication"
-        },
-        {
-            "name": "ai_monitoring",
-            "display_name": "AI Monitoring",
-            "description": "AI-powered threat detection",
-            "enabled": True,
-            "category": "monitoring"
-        },
-        {
-            "name": "rate_limiting",
-            "display_name": "Rate Limiting",
-            "description": "Prevent brute force attacks",
-            "enabled": True,
-            "category": "protection"
-        },
-        {
-            "name": "session_timeout",
-            "display_name": "Session Timeout",
-            "description": "Auto logout inactive users",
-            "enabled": True,
-            "category": "session"
-        },
-        {
-            "name": "audit_logging",
-            "display_name": "Audit Logging",
-            "description": "Log all security events",
-            "enabled": True,
-            "category": "logging"
-        },
-        {
-            "name": "encryption",
-            "display_name": "Encryption",
-            "description": "End-to-end encryption",
-            "enabled": True,
-            "category": "encryption"
-        }
+    """Security controls status.
+
+    There is no control registry behind this endpoint (see the toggle route
+    below, which refuses for the same reason), so every control is reported as
+    not implemented and disabled rather than as a working, enabled control.
+    """
+    catalogue = [
+        ("mfa_enabled", "Multi-Factor Authentication", "Require MFA for all users", "authentication"),
+        ("ai_monitoring", "AI Monitoring", "AI-powered threat detection", "monitoring"),
+        ("rate_limiting", "Rate Limiting", "Prevent brute force attacks", "protection"),
+        ("session_timeout", "Session Timeout", "Auto logout inactive users", "session"),
+        ("audit_logging", "Audit Logging", "Log all security events", "logging"),
+        ("encryption", "Encryption", "End-to-end encryption", "encryption"),
     ]
-    
-    return [SecurityControlResponse(**control) for control in controls]
+    return [
+        SecurityControlResponse(
+            name=name,
+            display_name=display_name,
+            description=description,
+            category=category,
+            enabled=False,
+            status="not_implemented",
+            wired=False,
+        )
+        for name, display_name, description, category in catalogue
+    ]
 
 
 @router.post("/controls/{control_name}")

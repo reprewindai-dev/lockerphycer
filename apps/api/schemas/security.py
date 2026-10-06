@@ -63,6 +63,10 @@ class SecurityControlResponse(BaseModel):
     description: str
     enabled: bool
     category: str
+    # Whether a real control backs this entry. "not_implemented" / False means
+    # the value of ``enabled`` is not measured from anything.
+    status: str = "not_implemented"
+    wired: bool = False
 
 
 class SecurityDashboard(BaseModel):

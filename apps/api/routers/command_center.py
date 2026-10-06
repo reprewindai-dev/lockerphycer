@@ -589,9 +589,9 @@ async def governance_compliance(admin_email: str = Depends(require_admin)):
     """Compliance posture with honest evidence states — no fake claims."""
     return {
         "policies": [
-            {"name": "Data Encryption at Rest", "evidence": "configured", "detail": "SQLAlchemy engine uses encrypted connection string"},
+            {"name": "Data Encryption at Rest", "evidence": "not_wired", "detail": "No database or volume encryption is configured by LockerPhycer; passwords and session tokens are stored only as hashes"},
             {"name": "JWT Token Rotation", "evidence": "configured", "detail": "JWT signing configured in settings; auto-rotation not yet wired"},
-            {"name": "MFA Requirement", "evidence": "not_wired", "detail": "MFA is not implemented yet — planned for auth hardening phase"},
+            {"name": "MFA Requirement", "evidence": "configured", "detail": "TOTP MFA can be enabled per account (/auth/mfa) and is enforced at login for those accounts; no org-wide requirement"},
             {"name": "Audit Logging", "evidence": "verified", "detail": "AuditLog model + /audit-log endpoint active; AgentRun + EvidenceArtifact capture proof"},
             {"name": "RBAC Enforcement", "evidence": "configured", "detail": "JWT Bearer auth + require_admin dependency active; full RBAC with roles/permissions planned"},
             {"name": "Rate Limiting", "evidence": "configured", "detail": "Middleware configured; per-route enforcement pending verification"},
@@ -620,11 +620,15 @@ async def governance_compliance(admin_email: str = Depends(require_admin)):
 
 @router.get("/governance/vault")
 async def vault_posture(admin_email: str = Depends(require_admin)):
+    """No secrets vault is connected to LockerPhycer. Nothing here is measured,
+    so the figures are reported as absent rather than invented."""
     return {
-        "encryption": "AES-256",
-        "key_rotation_days": 90,
-        "secrets_stored": 12,
+        "status": "not_implemented",
+        "wired": False,
+        "encryption": None,
+        "key_rotation_days": None,
+        "secrets_stored": 0,
         "last_rotation": None,
-        "status": "healthy",
+        "detail": "No secrets vault is connected; posture cannot be reported.",
         "timestamp": datetime.utcnow().isoformat(),
     }

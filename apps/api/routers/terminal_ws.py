@@ -563,7 +563,7 @@ _ROUTE_MAP = {
     ("GET", "/api/v1/command-center/operations/errors"): {"description": "Operations error log", "auth": True, "safe": True, "wired": True},
     ("GET", "/api/v1/command-center/agents/fleet"): {"description": "Agent fleet overview (130 agents)", "auth": True, "safe": True, "wired": True},
     ("GET", "/api/v1/command-center/governance/compliance"): {"description": "Governance compliance with evidence states", "auth": True, "safe": True, "wired": True},
-    ("GET", "/api/v1/command-center/governance/vault"): {"description": "Vault posture", "auth": True, "safe": True, "wired": True},
+    ("GET", "/api/v1/command-center/governance/vault"): {"description": "Vault posture (no vault connected; reports not_implemented)", "auth": True, "safe": True, "wired": False},
     # ── Agent Workforce (new) ─────────────────────────────────────────────
     ("GET", "/api/v1/agents/registry"): {"description": "List all 130 agents with filters", "auth": True, "safe": True, "wired": True},
     ("GET", "/api/v1/agents/registry/{agent_number}"): {"description": "Get agent definition", "auth": True, "safe": True, "wired": True},

@@ -737,6 +737,11 @@ async function renderCompliance(c) {
 async function renderVault(c) {
   var data = await api('/governance/vault');
   if (!data) { c.innerHTML = '<p style="color:var(--red)">Failed to load</p>'; return; }
+  if (data.wired === false || data.status === 'not_implemented') {
+    c.innerHTML = '<div class="section-title">Vault Posture</div>' +
+      '<p style="color:var(--text-muted)">' + (data.detail || 'No secrets vault is connected; posture cannot be reported.') + '</p>';
+    return;
+  }
   c.innerHTML = '<div class="section-title">Vault Posture</div>' +
     '<div class="cards-grid">' +
       card('Encryption', data.encryption, '') +
