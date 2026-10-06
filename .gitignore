@@ -13,3 +13,17 @@ build/
 .coverage
 htmlcov/
 .venv/
+
+# --- Secret-shaped files must never be committed (AI guardrail, 2026-10-06) ---
+.env
+.env.*
+!.env.example
+!.env.sample
+*sasl_passwd*
+postfix/sasl_passwd
+*.pem
+*.key
+id_rsa*
+*.p12
+*.pfx
+*.dump
