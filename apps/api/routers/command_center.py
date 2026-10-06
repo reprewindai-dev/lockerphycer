@@ -589,7 +589,7 @@ async def governance_compliance(admin_email: str = Depends(require_admin)):
     """Compliance posture with honest evidence states — no fake claims."""
     return {
         "policies": [
-            {"name": "Data Encryption at Rest", "evidence": "not_wired", "detail": "No database or volume encryption is configured by LockerPhycer; passwords and session tokens are stored only as hashes"},
+            {"name": "Data Encryption at Rest", "evidence": "not_wired", "detail": "No database or volume encryption is configured by LockerPhycer; passwords and session tokens are stored only as hashes and TOTP secrets are Fernet-encrypted (key derived from SECRET_KEY)"},
             {"name": "JWT Token Rotation", "evidence": "configured", "detail": "JWT signing configured in settings; auto-rotation not yet wired"},
             {"name": "MFA Requirement", "evidence": "configured", "detail": "TOTP MFA can be enabled per account (/auth/mfa) and is enforced at login for those accounts; no org-wide requirement"},
             {"name": "Audit Logging", "evidence": "verified", "detail": "AuditLog model + /audit-log endpoint active; AgentRun + EvidenceArtifact capture proof"},

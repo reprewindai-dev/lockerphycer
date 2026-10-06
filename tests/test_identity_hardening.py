@@ -48,6 +48,11 @@ def _seed_mfa_user():
                 )
             )
             await session.commit()
+            # The row holds ciphertext; only the model hands back the secret.
+            from sqlalchemy import text
+
+            raw = (await session.execute(text("SELECT mfa_secret FROM users WHERE email = :e"), {"e": email})).scalar_one()
+            assert raw != secret and raw.startswith("enc1:"), "mfa_secret must be encrypted at rest"
 
     asyncio.run(seed())
     return email, secret

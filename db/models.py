@@ -10,6 +10,7 @@ from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.database.database import Base
+from core.security.at_rest import EncryptedSecret
 
 
 def new_id() -> str:
@@ -80,7 +81,8 @@ class User(Base):
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.USER, index=True)
     status: Mapped[UserStatus] = mapped_column(Enum(UserStatus), default=UserStatus.ACTIVE, index=True)
     mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
-    mfa_secret: Mapped[str | None] = mapped_column(String(255))
+    # Plaintext in Python, Fernet ciphertext at rest (core.security.at_rest).
+    mfa_secret: Mapped[str | None] = mapped_column(EncryptedSecret(255))
     failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0)
     account_locked_until: Mapped[datetime | None] = mapped_column(DateTime)
     last_login: Mapped[datetime | None] = mapped_column(DateTime)

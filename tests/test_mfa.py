@@ -70,6 +70,14 @@ async def main():
         check("mfa_enabled is True after a successful confirm", user.mfa_enabled is True)
         check("exactly 10 backup codes were issued", backup_codes is not None and len(backup_codes) == 10)
 
+        # --- Step 3b: the secret is ciphertext at rest and plaintext through the model ---
+        from sqlalchemy import text
+        from core.security.at_rest import is_encrypted
+        raw_secret = (await db.execute(text("SELECT mfa_secret FROM users WHERE id = :id"), {"id": user.id})).scalar_one()
+        check("mfa_secret is stored encrypted, not as the plaintext secret", is_encrypted(raw_secret) and raw_secret != setup["secret"])
+        await db.refresh(user)
+        check("mfa_secret reads back as the plaintext secret", user.mfa_secret == setup["secret"])
+
         # --- Step 4: login-time verification with a live TOTP code ---
         login_code = pyotp.TOTP(user.mfa_secret).now()
         check("verify_mfa_code accepts a live TOTP code at login", await verify_mfa_code(db, user, login_code))
