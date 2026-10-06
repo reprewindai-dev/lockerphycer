@@ -207,6 +207,10 @@ def test_mfa_setup_endpoints_work_over_http():
 
     with TestClient(app) as client:
         _, headers = _session(client)
+        # Nothing to render or confirm before setup started.
+        assert client.get("/api/v1/auth/mfa/setup/qr", headers=headers).status_code == 404
+        assert client.post("/api/v1/auth/mfa/confirm", headers=headers, json={"code": "000000"}).status_code == 400
+
         setup = client.post("/api/v1/auth/mfa/setup", headers=headers)
         assert setup.status_code == 200, setup.text
         secret = setup.json()["secret"]
@@ -214,11 +218,21 @@ def test_mfa_setup_endpoints_work_over_http():
 
         qr = client.get("/api/v1/auth/mfa/setup/qr", headers=headers)
         assert qr.status_code == 200 and qr.content[:8] == b"\x89PNG\r\n\x1a\n"
+        # The QR encodes the stored pending secret, not a fresh one per call.
+        assert client.get("/api/v1/auth/mfa/setup/qr", headers=headers).content == qr.content
 
-        assert client.post("/api/v1/auth/mfa/confirm", headers=headers, json={"secret": secret, "code": "000000"}).status_code == 400
-        confirmed = client.post("/api/v1/auth/mfa/confirm", headers=headers, json={"secret": secret, "code": pyotp.TOTP(secret).now()})
+        assert client.post("/api/v1/auth/mfa/confirm", headers=headers, json={"code": "000000"}).status_code == 400
+        # A secret chosen by the client is ignored: only the stored pending secret counts.
+        attacker_secret = pyotp.random_base32()
+        hijack = client.post("/api/v1/auth/mfa/confirm", headers=headers,
+                             json={"secret": attacker_secret, "code": pyotp.TOTP(attacker_secret).now()})
+        assert hijack.status_code == 400
+
+        confirmed = client.post("/api/v1/auth/mfa/confirm", headers=headers, json={"code": pyotp.TOTP(secret).now()})
         assert confirmed.status_code == 200
         assert confirmed.json()["mfa_enabled"] is True and len(confirmed.json()["backup_codes"]) >= 5
+        # Once enabled there is no pending secret left to confirm again.
+        assert client.post("/api/v1/auth/mfa/confirm", headers=headers, json={"code": pyotp.TOTP(secret).now()}).status_code == 400
 
 
 def _claims(token: str) -> dict:

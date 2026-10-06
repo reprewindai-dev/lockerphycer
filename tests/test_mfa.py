@@ -15,7 +15,8 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from core.database.database import Base
 from db.models import User, UserRole, UserStatus
 from core.security.mfa import (
-    setup_mfa,
+    begin_mfa_setup,
+    pending_mfa_secret,
     confirm_mfa_setup,
     verify_mfa_code,
     disable_mfa,
@@ -49,21 +50,22 @@ async def main():
         db.add(user)
         await db.commit()
 
-        # --- Step 1: setup generates a real secret + scannable QR ---
-        setup = setup_mfa(user.email)
+        # --- Step 1: setup generates a real secret + scannable QR, parked as pending ---
+        setup = await begin_mfa_setup(db, user)
         check("setup_mfa returns a base32 secret", len(setup["secret"]) >= 16)
         check("setup_mfa returns a real otpauth:// provisioning URI", setup["provisioning_uri"].startswith("otpauth://totp/"))
         check("setup_mfa returns real PNG bytes for the QR code", setup["qr_code_png_bytes"][:8] == b"\x89PNG\r\n\x1a\n")
         check("mfa_enabled is still False until confirmed", user.mfa_enabled is False)
+        check("the pending secret is the one the account will confirm", pending_mfa_secret(user) == setup["secret"])
 
         # --- Step 2: confirming with a WRONG code must not enable MFA ---
-        wrong_result = await confirm_mfa_setup(db, user, setup["secret"], "000000")
+        wrong_result = await confirm_mfa_setup(db, user, "000000")
         check("confirm_mfa_setup rejects a wrong code", wrong_result is None)
         check("mfa_enabled still False after a failed confirm", user.mfa_enabled is False)
 
         # --- Step 3: confirming with the REAL current TOTP code enables MFA ---
         real_code = pyotp.TOTP(setup["secret"]).now()
-        backup_codes = await confirm_mfa_setup(db, user, setup["secret"], real_code)
+        backup_codes = await confirm_mfa_setup(db, user, real_code)
         check("confirm_mfa_setup accepts a real current code", backup_codes is not None)
         check("mfa_enabled is True after a successful confirm", user.mfa_enabled is True)
         check("exactly 10 backup codes were issued", backup_codes is not None and len(backup_codes) == 10)

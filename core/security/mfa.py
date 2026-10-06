@@ -62,28 +62,52 @@ def _generate_backup_codes() -> list[str]:
     return codes
 
 
-def setup_mfa(user_email: str) -> dict:
-    """
-    Step 1: generate a new secret + QR code. Does NOT persist or enable
-    anything by itself — caller stores the secret against the user record
-    but leaves mfa_enabled False until confirm_mfa_setup succeeds.
-    """
-    secret = pyotp.random_base32()
-    totp = pyotp.TOTP(secret)
-    provisioning_uri = totp.provisioning_uri(name=user_email, issuer_name=ISSUER_NAME)
+def provisioning_uri_for(user_email: str, secret: str) -> str:
+    return pyotp.TOTP(secret).provisioning_uri(name=user_email, issuer_name=ISSUER_NAME)
 
+
+def render_mfa_qr(user_email: str, secret: str) -> bytes:
+    """PNG of the otpauth:// URI for ``secret`` — the one the account is confirming."""
     qr = qrcode.QRCode(box_size=6, border=2)
-    qr.add_data(provisioning_uri)
+    qr.add_data(provisioning_uri_for(user_email, secret))
     qr.make(fit=True)
     img = qr.make_image(fill_color="black", back_color="white")
     buf = io.BytesIO()
     img.save(buf, format="PNG")
+    return buf.getvalue()
 
+
+def setup_mfa(user_email: str) -> dict:
+    """
+    Step 1: generate a new secret + QR code. Does NOT persist or enable
+    anything by itself — begin_mfa_setup stores the secret against the user
+    record and leaves mfa_enabled False until confirm_mfa_setup succeeds.
+    """
+    secret = pyotp.random_base32()
     return {
         "secret": secret,  # show once, at setup time only — never re-display after this
-        "provisioning_uri": provisioning_uri,
-        "qr_code_png_bytes": buf.getvalue(),
+        "provisioning_uri": provisioning_uri_for(user_email, secret),
+        "qr_code_png_bytes": render_mfa_qr(user_email, secret),
     }
+
+
+def pending_mfa_secret(user: User) -> Optional[str]:
+    """The secret a not-yet-enabled account is in the middle of confirming.
+    An enabled account has no pending secret; its secret is live."""
+    if user.mfa_enabled:
+        return None
+    return user.mfa_secret or None
+
+
+async def begin_mfa_setup(db: AsyncSession, user: User) -> dict:
+    """Generate a fresh secret and park it on the account as pending. The
+    client only ever sees it here; /confirm and the QR read it back from
+    the account, so a caller cannot substitute a secret of its own."""
+    result = setup_mfa(user.email)
+    user.mfa_secret = result["secret"]
+    user.mfa_enabled = False
+    await db.commit()
+    return result
 
 
 def verify_totp_code(secret: str, code: str) -> bool:
@@ -94,19 +118,18 @@ def verify_totp_code(secret: str, code: str) -> bool:
     return totp.verify(code, valid_window=1)
 
 
-async def confirm_mfa_setup(
-    db: AsyncSession, user: User, secret: str, code: str
-) -> Optional[list[str]]:
+async def confirm_mfa_setup(db: AsyncSession, user: User, code: str) -> Optional[list[str]]:
     """
     Step 2: verify the user actually has a working authenticator app before
-    turning MFA on. Returns the plaintext backup codes ONCE (caller must
-    show them to the user immediately — only the hashes are stored) or
-    None if the code didn't verify.
+    turning MFA on. The secret is the account's pending one from
+    begin_mfa_setup, never a value the caller supplies. Returns the plaintext
+    backup codes ONCE (caller must show them to the user immediately — only
+    the hashes are stored) or None if the code didn't verify.
     """
-    if not verify_totp_code(secret, code):
+    secret = pending_mfa_secret(user)
+    if not secret or not verify_totp_code(secret, code):
         return None
 
-    user.mfa_secret = secret
     user.mfa_enabled = True
 
     plaintext_codes = _generate_backup_codes()
