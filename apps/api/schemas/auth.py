@@ -35,6 +35,8 @@ class UserResponse(UserBase):
     role: str
     status: str
     mfa_enabled: bool
+    # True once the email-verification link was confirmed (status left INACTIVE).
+    email_verified: bool = False
     created_at: datetime
     updated_at: Optional[datetime] = None
     last_login: Optional[datetime] = None

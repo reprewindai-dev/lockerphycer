@@ -58,6 +58,7 @@ def test_auth_session_lifecycle(monkeypatch):
         )
         assert register.status_code == 201
         assert register.json()["status"] == "inactive"
+        assert register.json()["email_verified"] is False
 
         blocked = client.post(
             "/api/v1/auth/login",
@@ -84,6 +85,8 @@ def test_auth_session_lifecycle(monkeypatch):
 
         me = client.get("/api/v1/auth/me", headers=headers)
         assert me.status_code == 200
+        assert me.json()["email_verified"] is True
+        assert tokens["user"]["email_verified"] is True
 
         logout = client.post("/api/v1/auth/logout", headers=headers)
         assert logout.status_code == 200

@@ -45,8 +45,16 @@ router = APIRouter()
 security = HTTPBearer()
 
 
+def _email_verified(user: User) -> bool:
+    # There is no separate verified flag: registration creates the account
+    # INACTIVE, login refuses INACTIVE ("Email verification required"), and
+    # /email-verification/confirm is what moves it to ACTIVE.
+    return user.status == UserStatus.ACTIVE
+
+
 def _user_response(user: User) -> UserResponse:
     payload = UserResponse.model_validate(user).model_dump(mode="json")
+    payload["email_verified"] = _email_verified(user)
     payload["_links"] = {
         "self": {"href": "/api/v1/auth/me", "method": "GET"},
         "workspace": {"href": "/api/v1/workspace", "method": "GET"},
@@ -400,6 +408,7 @@ async def get_current_user_info(
         legacy_workspace = token_payload.get("workspace")
         workspace_id = legacy_workspace if legacy_workspace and legacy_workspace != "default" else None
     payload["workspace_id"] = workspace_id
+    payload["email_verified"] = _email_verified(current_user)
     payload["_links"] = {
         "self": {"href": "/api/v1/auth/me", "method": "GET"},
         "workspace": {"href": "/api/v1/workspace", "method": "GET"},
