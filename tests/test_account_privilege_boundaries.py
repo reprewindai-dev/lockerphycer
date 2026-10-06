@@ -64,6 +64,48 @@ def test_user_cannot_create_list_or_read_other_users():
         assert client.get(f"/api/v1/users/{me['id']}", headers=headers).status_code == 200
 
 
+def test_user_cannot_touch_another_account_or_its_sessions():
+    """Every mutating or session-revealing users route must refuse a non-admin
+    acting on someone else's account, while the account's own sessions stay
+    reachable to it and to an admin."""
+    _set_test_env()
+    from fastapi.testclient import TestClient
+    from apps.api.main import app
+
+    with TestClient(app) as client:
+        me, headers = _signed_in_user(client)
+        other, other_headers = _signed_in_user(client)
+        other_sessions = client.get(f"/api/v1/users/{other['id']}/sessions", headers=other_headers).json()["sessions"]
+        assert len(other_sessions) == 1
+        other_session_id = other_sessions[0]["id"]
+
+        for method, path in [
+            ("put", f"/api/v1/users/{other['id']}"),
+            ("delete", f"/api/v1/users/{other['id']}"),
+            ("post", f"/api/v1/users/{other['id']}/activate"),
+            ("post", f"/api/v1/users/{other['id']}/deactivate"),
+            ("post", f"/api/v1/users/{me['id']}/activate"),
+            ("post", f"/api/v1/users/{me['id']}/deactivate"),
+            ("get", f"/api/v1/users/{other['id']}/sessions"),
+            ("delete", f"/api/v1/users/{other['id']}/sessions/{other_session_id}"),
+            # The path's user_id is not what authorises a revoke; the session's owner is.
+            ("delete", f"/api/v1/users/{me['id']}/sessions/{other_session_id}"),
+        ]:
+            kwargs = {"json": {"full_name": "Hijacked"}} if method == "put" else {}
+            response = getattr(client, method)(path, headers=headers, **kwargs)
+            assert response.status_code == 403, (method, path, response.status_code)
+
+        # The other account is untouched and still signed in.
+        assert client.get("/api/v1/auth/me", headers=other_headers).status_code == 200
+        assert client.get("/api/v1/auth/me", headers=other_headers).json()["full_name"] != "Hijacked"
+
+        _, admin_headers = _signed_in_user(client, admin=True)
+        assert client.get(f"/api/v1/users/{other['id']}/sessions", headers=admin_headers).status_code == 200
+        revoked = client.delete(f"/api/v1/users/{other['id']}/sessions/{other_session_id}", headers=admin_headers)
+        assert revoked.status_code == 200
+        assert client.get("/api/v1/auth/me", headers=other_headers).status_code == 401
+
+
 def test_admin_can_still_manage_users():
     _set_test_env()
     from fastapi.testclient import TestClient
