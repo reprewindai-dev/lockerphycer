@@ -10,3 +10,7 @@ __pycache__
 .env.*
 !.env.example
 .test-tmp
+
+# Local dumps and logs never belong in the image
+*.dump
+*.log
