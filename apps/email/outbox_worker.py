@@ -31,6 +31,9 @@ def validate_public_origin():
 
 
 async def process_one(session_factory=SessionLocal):
+    # An intentional delivery hold must not exhaust retries or claim intents.
+    if settings.EMAIL_TRANSPORT.lower() == "disabled":
+        return False
     now = datetime.utcnow()
     async with session_factory() as db:
         row = (await db.execute(select(Outbox).where(

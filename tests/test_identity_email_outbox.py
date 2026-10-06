@@ -29,6 +29,12 @@ def test_durable_outbox_retry_and_ambiguity(tmp_path, monkeypatch):
             await db.commit()
             assert len((await db.execute(select(Outbox))).scalars().all()) == 1
         monkeypatch.setattr(sender, 'send_verify_email', lambda *args: None)
+        monkeypatch.setattr(settings, 'EMAIL_TRANSPORT', 'disabled')
+        assert await process_one(factory) is False
+        async with factory() as db:
+            held = (await db.execute(select(Outbox))).scalars().one()
+            assert held.status == 'QUEUED' and held.attempts == 0
+        monkeypatch.setattr(settings, 'EMAIL_TRANSPORT', 'smtp')
         await process_one(factory)
         async with factory() as db:
             row = (await db.execute(select(Outbox))).scalars().one()
