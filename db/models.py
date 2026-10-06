@@ -552,3 +552,156 @@ class ActorRun(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     started_at: Mapped[datetime | None] = mapped_column(DateTime)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+class MachineToken(Base):
+    __tablename__ = "machine_tokens"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    hashed_secret: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    workspace_id: Mapped[str] = mapped_column(String(36), index=True)
+    created_by: Mapped[str] = mapped_column(String(255))
+    name: Mapped[str] = mapped_column(String(160))
+    status: Mapped[str] = mapped_column(String(50), default="active")
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    revoked_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    last_used_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+
+
+# ---------------------------------------------------------------------------
+# Commercial entitlements (Welcome clock, plan, allowance, top-ups, ledger)
+# ---------------------------------------------------------------------------
+
+
+class WorkspaceEntitlement(Base):
+    """Current commercial state of one workspace (one row per workspace).
+
+    ``plan`` is the base plan (developer/pro/team/enterprise). Welcome is a
+    time window on top of it: active while now < welcome_ends_at.
+    ``welcome_owner_key`` is unique so Welcome never recurs for the same owner.
+    """
+
+    __tablename__ = "workspace_entitlements"
+
+    workspace_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    owner_key: Mapped[str] = mapped_column(String(255), index=True)
+    plan: Mapped[str] = mapped_column(String(40), default="developer")
+    welcome_started_at: Mapped[datetime | None] = mapped_column(DateTime)
+    welcome_ends_at: Mapped[datetime | None] = mapped_column(DateTime)
+    welcome_owner_key: Mapped[str | None] = mapped_column(String(255), unique=True)
+    welcome_ended_at: Mapped[datetime | None] = mapped_column(DateTime)
+    converted_at: Mapped[datetime | None] = mapped_column(DateTime)
+    period_start: Mapped[datetime] = mapped_column(DateTime)
+    period_end: Mapped[datetime] = mapped_column(DateTime)
+    period_allowance: Mapped[int] = mapped_column(Integer, default=0)
+    period_used: Mapped[int] = mapped_column(Integer, default=0)
+    topup_balance: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, onupdate=datetime.utcnow)
+
+
+class CreditLedgerEntry(Base):
+    """Append-only credit ledger. Rows are never updated or deleted.
+
+    entry_type: grant | debit | topup | reversal | read_unbilled | denied
+    ``idempotency_key`` is unique: replaying a key never charges twice.
+    """
+
+    __tablename__ = "credit_ledger"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(String(36), index=True)
+    entry_type: Mapped[str] = mapped_column(String(20), index=True)
+    direction: Mapped[str] = mapped_column(String(6))  # "debit" | "credit" | "none"
+    action_type: Mapped[str | None] = mapped_column(String(60), index=True)
+    credits: Mapped[int] = mapped_column(Integer, default=0)
+    allowance_debit: Mapped[int] = mapped_column(Integer, default=0)
+    topup_debit: Mapped[int] = mapped_column(Integer, default=0)
+    balance_after: Mapped[int] = mapped_column(Integer, default=0)
+    idempotency_key: Mapped[str | None] = mapped_column(String(255), unique=True)
+    reverses_entry_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    mount_id: Mapped[str | None] = mapped_column(String(160), index=True)
+    execution_ref: Mapped[str | None] = mapped_column(String(160), index=True)
+    operation_ref: Mapped[str | None] = mapped_column(String(160))
+    principal: Mapped[str | None] = mapped_column(String(255), index=True)
+    settlement_rail: Mapped[str] = mapped_column(String(40), default="off_chain_ledger")
+    settlement_ref: Mapped[str | None] = mapped_column(String(255))
+    description: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class StripeWebhookEvent(Base):
+    """Processed Stripe webhook events (idempotency by Stripe event id)."""
+
+    __tablename__ = "stripe_webhook_events"
+
+    event_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    event_type: Mapped[str] = mapped_column(String(120), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="processing")
+    workspace_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    result: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class ActivationEvent(Base):
+    """Product activation events. ``dedupe_key`` makes once-only events idempotent."""
+
+    __tablename__ = "activation_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    event_name: Mapped[str] = mapped_column(String(60), index=True)
+    workspace_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    user_id: Mapped[str | None] = mapped_column(String(255), index=True)
+    source: Mapped[str] = mapped_column(String(40), default="lockerphycer")
+    ref: Mapped[str | None] = mapped_column(String(255))
+    dedupe_key: Mapped[str | None] = mapped_column(String(255), unique=True)
+    details: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+# ---------------------------------------------------------------------------
+# Veklom Wallet (Base): workspace-bound wallet addresses and SIWE nonces
+# ---------------------------------------------------------------------------
+
+
+class WorkspaceWallet(Base):
+    """A wallet address proven (EIP-4361 / SIWE) and bound to a workspace.
+
+    ``source`` is "created" (CDP embedded wallet or a new Base Account made in
+    onboarding) or "connected" (an existing wallet). One active row per
+    workspace and chain; re-binding a different address revokes the previous
+    row (``revoked_at``) so history is kept.
+    """
+
+    __tablename__ = "workspace_wallets"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "chain_id", "address", name="uq_workspace_wallet_address"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(String(36), index=True)
+    chain_id: Mapped[int] = mapped_column(Integer, index=True)
+    address: Mapped[str] = mapped_column(String(42), index=True)  # EIP-55 checksummed
+    source: Mapped[str] = mapped_column(String(20))  # "created" | "connected"
+    wallet_provider: Mapped[str | None] = mapped_column(String(60))  # e.g. cdp_embedded, base_account, walletconnect
+    signature_kind: Mapped[str] = mapped_column(String(20))  # "eoa" | "contract" (ERC-1271/6492)
+    siwe_message: Mapped[str] = mapped_column(Text)
+    siwe_signature: Mapped[str] = mapped_column(Text)
+    siwe_nonce: Mapped[str] = mapped_column(String(64), unique=True)
+    verified_by: Mapped[str] = mapped_column(String(255))  # operator email that signed in
+    verified_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class WalletNonce(Base):
+    """Single-use SIWE nonces, issued per workspace; consumed on verification."""
+
+    __tablename__ = "wallet_nonces"
+
+    nonce: Mapped[str] = mapped_column(String(64), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(36), index=True)
+    issued_to: Mapped[str] = mapped_column(String(255))
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

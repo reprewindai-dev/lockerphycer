@@ -2,6 +2,7 @@
 Security Middleware for FastAPI
 """
 
+import ipaddress
 from fastapi import Request, HTTPException, status
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response, JSONResponse
@@ -11,6 +12,7 @@ from typing import Dict, Any, List
 import json
 from collections import defaultdict, deque
 import asyncio
+import os
 from datetime import datetime, timedelta
 
 from core.config.settings import settings
@@ -33,8 +35,10 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         client_ip = self._get_client_ip(request)
         
         try:
-            # Rate limiting
-            if not await self.rate_limiter.is_allowed(client_ip):
+            # Rate limiting. Authenticated CAPPO->LockerPhycer metering calls all
+            # originate from one service IP; they are exempt only when they carry
+            # the configured service token (CAPPO applies its own limits).
+            if not _is_authenticated_internal_call(request) and not await self.rate_limiter.is_allowed(client_ip):
                 return JSONResponse(
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                     content={"error": {"code": 429, "message": "Rate limit exceeded"}}
@@ -66,18 +70,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
     
     def _get_client_ip(self, request: Request) -> str:
         """Get client IP address from request"""
-        # Check for forwarded IP
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        if forwarded_for:
-            return forwarded_for.split(",")[0].strip()
-        
-        # Check for real IP
-        real_ip = request.headers.get("X-Real-IP")
-        if real_ip:
-            return real_ip.strip()
-        
-        # Fall back to client IP
-        return request.client.host if request.client else "unknown"
+        return trusted_client_ip(request)
     
     async def _validate_request(self, request: Request, client_ip: str):
         """Validate request for security threats, CSRF, and IDS alerts"""
@@ -106,27 +99,15 @@ class SecurityMiddleware(BaseHTTPMiddleware):
             is_excluded = (
                 path.startswith("/api/v1/webhooks") or
                 path.startswith("/api/v1/x402/verify") or
-                path.startswith("/api/v1/capi")
+                path.startswith("/api/v1/capi") or
+                # Anonymous, credential-free analytics beacons; the analytics
+                # router applies its own origin allowlist (incl. os/vlink hosts).
+                path == "/api/v1/analytics/events"
             )
             if not is_excluded:
                 origin = request.headers.get("origin")
                 if origin:
-                    from urllib.parse import urlparse
-                    origin_host = urlparse(origin).netloc
-                    allowed_hosts = [
-                        "lockersphere.com",
-                        "app.lockersphere.com",
-                        "command.lockersphere.com",
-                        "veklom.com",
-                        "app.veklom.com"
-                    ]
-                    if settings.FRONTEND_URL:
-                        allowed_hosts.append(urlparse(settings.FRONTEND_URL).netloc)
-                    host_header = request.headers.get("host")
-                    if host_header:
-                        allowed_hosts.append(host_header)
-                        
-                    if not any(ah in origin_host for ah in allowed_hosts if ah):
+                    if not is_allowed_origin(origin):
                         raise HTTPException(
                             status_code=status.HTTP_403_FORBIDDEN,
                             detail="CSRF validation failed: Origin not allowed"
@@ -239,6 +220,37 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                 f"Suspicious activity detected from {client_ip}: "
                 f"multiple requests to sensitive endpoints"
             )
+
+
+def _is_authenticated_internal_call(request: Request) -> bool:
+    if not request.url.path.startswith("/api/v1/internal/"):
+        return False
+    import hmac
+
+    from core.entitlements.config import get_entitlement_settings
+
+    expected = get_entitlement_settings().ENTITLEMENTS_INTERNAL_TOKEN
+    supplied = request.headers.get("x-veklom-service-token")
+    return bool(expected and supplied and hmac.compare_digest(supplied, expected))
+
+
+def trusted_client_ip(request: Request) -> str:
+    """The caller's address for rate limiting, lockout and audit.
+
+    Public traffic only reaches this service through the Cloudflare tunnel, and
+    Cloudflare overwrites CF-Connecting-IP at its edge, so that header is the one
+    a caller cannot choose. X-Forwarded-For and X-Real-IP are ignored: their first
+    entry is whatever the caller sent, which let anyone pick a fresh rate-limit
+    bucket per request. Without the Cloudflare header (service-to-service calls
+    on the internal network) the socket peer is used.
+    """
+    cf_ip = (request.headers.get("CF-Connecting-IP") or "").strip()
+    if cf_ip:
+        try:
+            return str(ipaddress.ip_address(cf_ip))
+        except ValueError:
+            pass
+    return request.client.host if request.client else "unknown"
 
 
 class RateLimiter:
@@ -455,3 +467,25 @@ class IntrusionDetectionSystem:
 
 # Global IDS instance
 ids = IntrusionDetectionSystem()
+
+def allowed_request_origins() -> set[str]:
+    configured = [
+        value.strip().rstrip("/")
+        for value in os.environ.get("LOCKERPHYCER_CORS_ORIGINS", "").split(",")
+        if value.strip()
+    ]
+    defaults = [
+        settings.FRONTEND_URL.rstrip("/"),
+        "https://veklom.dev",
+        "https://veklom.com",
+        "https://os.veklom.com",
+        "https://vlink.veklom.com",
+        "https://app.veklom.com",
+        "http://localhost:3002",
+        "http://127.0.0.1:3002",
+    ]
+    return {origin for origin in [*configured, *defaults] if origin}
+
+
+def is_allowed_origin(origin: str) -> bool:
+    return origin.rstrip("/") in allowed_request_origins()

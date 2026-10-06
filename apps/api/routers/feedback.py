@@ -8,6 +8,7 @@ from datetime import datetime
 import uuid
 
 from core.database.database import get_db
+from core.security.auth import require_admin
 from db.models import Feedback
 
 router = APIRouter()
@@ -89,6 +90,7 @@ async def resolve_feedback(
     feedback_id: str,
     resolution: str = "resolved",
     db: AsyncSession = Depends(get_db),
+    _admin: str = Depends(require_admin),
 ):
     fb = await db.get(Feedback, feedback_id)
     if not fb:

@@ -49,6 +49,7 @@ class LoginRequest(BaseModel):
 
     email: EmailStr
     password: str
+    mfa_code: Optional[str] = Field(default=None, min_length=6, max_length=32)
 
 
 class RegisterRequest(UserCreate):

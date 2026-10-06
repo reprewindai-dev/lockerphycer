@@ -7,7 +7,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.schemas.auth import (
@@ -24,7 +24,11 @@ from apps.email.sender import send_password_reset, send_verify_email, send_welco
 from apps.email.outbox import enqueue_identity_email
 from core.config.settings import settings
 from core.database.database import get_db
+from core.entitlements.activation import emit_activation_event
+from core.security.mfa import verify_mfa_code
+from core.security.middleware import trusted_client_ip
 from core.security.auth import (
+    session_claims,
     create_access_token,
     create_email_verification_token,
     create_password_reset_token,
@@ -59,8 +63,7 @@ def _credential_version(user: User) -> str:
 
 
 def _request_metadata(request: Request) -> tuple[str | None, str | None]:
-    forwarded_for = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
-    ip_address = forwarded_for or (request.client.host if request.client else None)
+    ip_address = trusted_client_ip(request)
     user_agent = request.headers.get("user-agent")
     return ip_address, user_agent[:512] if user_agent else None
 
@@ -120,7 +123,9 @@ async def register(user_data: RegisterRequest, db: AsyncSession = Depends(get_db
 
     await db.commit()
     await db.refresh(user)
-    return _user_response(user)
+    response = _user_response(user)
+    await emit_activation_event(db, "signup_completed", user_id=user.id)
+    return response
 
 
 @router.post("/email-verification/resend", status_code=status.HTTP_202_ACCEPTED)
@@ -163,6 +168,7 @@ async def confirm_email_verification(
         await db.commit()
         await db.refresh(user)
         await asyncio.to_thread(send_welcome, user.email, _first_name(user))
+        await emit_activation_event(db, "email_verified", user_id=user.id)
 
     return {"verified": True, "activated": activated}
 
@@ -198,13 +204,27 @@ async def login(
         await db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
+    # Second factor. An account with MFA enabled gets no session from a password
+    # alone; a wrong code counts as a failed attempt exactly like a wrong password.
+    if user.mfa_enabled:
+        if not login_data.mfa_code:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="MFA code required")
+        if not await verify_mfa_code(db, user, login_data.mfa_code.strip()):
+            user.failed_login_attempts += 1
+            if user.failed_login_attempts >= settings.MAX_FAILED_LOGIN_ATTEMPTS:
+                user.account_locked_until = now + timedelta(minutes=settings.ACCOUNT_LOCKOUT_DURATION_MINUTES)
+                user.status = UserStatus.LOCKED
+            await db.commit()
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
     user.failed_login_attempts = 0
     user.account_locked_until = None
     user.last_login = now
     user.last_activity = now
 
-    access_token = create_access_token({"sub": user.email})
-    refresh_token = create_refresh_token({"sub": user.email})
+    claims = await session_claims(db, user)
+    access_token = create_access_token(claims)
+    refresh_token = create_refresh_token(claims)
     ip_address, user_agent = _request_metadata(request)
 
     session = UserSession(
@@ -218,19 +238,33 @@ async def login(
     db.add(session)
     await db.commit()
     await db.refresh(user)
+    response_user = _user_response(user)
+    await _maybe_emit_second_session(db, user.id)
 
     return LoginResponse(
         access_token=access_token,
         refresh_token=refresh_token,
         token_type="bearer",
         expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        user=_user_response(user),
+        user=response_user,
         _links={
             "refresh": {"href": "/api/v1/auth/refresh", "method": "POST"},
             "logout": {"href": "/api/v1/auth/logout", "method": "POST"},
             "workspace": {"href": "/api/v1/workspace", "method": "GET"},
         },
     )
+
+
+async def _maybe_emit_second_session(db: AsyncSession, user_id: str) -> None:
+    """second_session: the user's second password login (once-only)."""
+    try:
+        count = (
+            await db.execute(select(func.count()).select_from(UserSession).where(UserSession.user_id == user_id))
+        ).scalar_one()
+    except Exception:
+        return
+    if count >= 2:
+        await emit_activation_event(db, "second_session", user_id=user_id)
 
 
 @router.post("/password-reset", status_code=status.HTTP_202_ACCEPTED)
@@ -306,8 +340,9 @@ async def refresh_token(
     if not session:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session revoked or expired")
 
-    access_token = create_access_token({"sub": user.email})
-    refresh_token = create_refresh_token({"sub": user.email})
+    claims = await session_claims(db, user)
+    access_token = create_access_token(claims)
+    refresh_token = create_refresh_token(claims)
     session.session_token = access_token
     session.refresh_token = refresh_token
     session.last_accessed = now
@@ -369,9 +404,52 @@ async def get_current_user_info(
     }
     return UserResponse(**payload)
 
-from pydantic import BaseModel
+import os
+import re
+
+import httpx
+from pydantic import BaseModel, Field
+
+
 class GitHubExchangeRequest(BaseModel):
-    github_username: str
+    github_access_token: str = Field(..., min_length=20, max_length=512)
+
+
+_GITHUB_LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$")
+
+
+def _github_http_client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(timeout=10)
+
+
+async def _github_login_for_app_token(access_token: str) -> str:
+    """Return the GitHub login a token belongs to, as attested by GitHub itself.
+
+    The token is checked against this deployment's own OAuth app (client id and
+    secret), so a caller-supplied username, or a token issued to some other app,
+    never yields a Veklom session.
+    """
+    client_id = os.environ.get("GITHUB_CLIENT_ID")
+    client_secret = os.environ.get("GITHUB_CLIENT_SECRET")
+    if not client_id or not client_secret:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="GitHub sign-in is not configured")
+    try:
+        async with _github_http_client() as client:
+            response = await client.post(
+                f"https://api.github.com/applications/{client_id}/token",
+                auth=(client_id, client_secret),
+                headers={"Accept": "application/vnd.github+json"},
+                json={"access_token": access_token},
+            )
+    except httpx.HTTPError:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="GitHub verification unavailable")
+    if response.status_code != 200:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="GitHub token was not issued to this application")
+    login = ((response.json() or {}).get("user") or {}).get("login")
+    if not isinstance(login, str) or not _GITHUB_LOGIN_RE.match(login):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="GitHub identity could not be verified")
+    return login
+
 
 @router.post("/github/exchange")
 async def github_exchange(
@@ -379,6 +457,47 @@ async def github_exchange(
     request: Request,
     db: AsyncSession = Depends(get_db)
 ):
-    # A username is not proof of GitHub ownership. Fail closed until a verified
-    # provider subject is bound to a distinct external-principal namespace.
-    raise HTTPException(status_code=410, detail="GITHUB_USERNAME_EXCHANGE_RETIRED")
+    github_username = await _github_login_for_app_token(payload.github_access_token)
+    normalized_email = f"{github_username.lower()}@machine.veklom.com"
+    user = (await db.execute(select(User).where(User.email == normalized_email))).scalars().first()
+    if not user:
+        user = User(
+            email=normalized_email,
+            username=github_username,
+            full_name=github_username,
+            hashed_password="github_oauth_no_password",
+            role="user"
+        )
+        db.add(user)
+        await db.flush()
+        await db.refresh(user)
+
+    ip_address, user_agent = _request_metadata(request)
+    now = datetime.utcnow()
+    
+    import uuid
+    session_id = str(uuid.uuid4())
+    
+    access_token = create_access_token(
+        data={**(await session_claims(db, user)), "session_id": session_id},
+        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    )
+    
+    refresh_token = create_refresh_token(
+        data={**(await session_claims(db, user)), "session_id": session_id},
+        expires_delta=timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    )
+    
+    session = UserSession(
+        id=session_id,
+        user_id=user.id,
+        session_token=access_token,
+        refresh_token=refresh_token,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        expires_at=now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    )
+    db.add(session)
+    await db.commit()
+    
+    return {"access_token": access_token, "token_type": "bearer", "user": _user_response(user)}

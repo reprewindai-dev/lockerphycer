@@ -5,14 +5,16 @@ Backend source of truth: lockerphycer
 
 from pathlib import Path
 
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import Depends, FastAPI, Request, HTTPException
+
+from core.security.auth import get_current_user
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse, FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
+import os
 import uvicorn
 import logging
-import os
 from datetime import datetime
 
 from core.config.settings import settings
@@ -95,7 +97,7 @@ def _setup_otel():
 _setup_otel()
 
 from apps.api.routers import auth, users, security, monitoring, ai
-from apps.api.routers import workspace, marketplace, billing, business, gpc, gpc_proxy, platform_pulse, feedback, command_center, protocol, health_dependencies
+from apps.api.routers import workspace, marketplace, billing, business, gpc, platform_pulse, feedback, command_center, protocol, health_dependencies
 from apps.api.routers.verticals import router as verticals_router
 from apps.api.routers import terminal_ws
 from apps.api.routers import agents as agents_router
@@ -153,16 +155,26 @@ try:
 except ImportError:
     pass
 
+_configured_cors_origins = [
+    origin.strip().rstrip("/")
+    for origin in os.environ.get("LOCKERPHYCER_CORS_ORIGINS", "").split(",")
+    if origin.strip()
+]
+
 _cors_origins = (
     ["*"]
     if settings.DEBUG
     else [
         settings.FRONTEND_URL,
+        "https://veklom.dev",
         "https://lockersphere.com",
         "https://app.lockersphere.com",
         "https://command.lockersphere.com",
         "https://veklom.com",
         "https://app.veklom.com",
+        "http://localhost:3002",
+        "http://127.0.0.1:3002",
+        *_configured_cors_origins,
     ]
 )
 
@@ -272,7 +284,7 @@ async def lockersphere_landing():
 # API Routers — source of truth endpoints
 # ---------------------------------------------------------------------------
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
-app.include_router(github_auth.router, prefix="/api/v1/auth/github", tags=["GitHub OAuth"])
+app.include_router(github_auth.router, prefix="/api/v1/auth/github", tags=["GitHub Authentication"])
 app.include_router(mfa.router, prefix="/api/v1", tags=["MFA"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
 app.include_router(security.router, prefix="/api/v1/security", tags=["Security"])
@@ -280,13 +292,21 @@ app.include_router(monitoring.router, prefix="/api/v1/monitoring", tags=["Monito
 app.include_router(ai.router, prefix="/api/v1/ai", tags=["AI Services"])
 app.include_router(verticals_router, prefix="/api/v1/verticals", tags=["Verticals"])
 app.include_router(workspace.router, prefix="/api/v1/workspace", tags=["Workspace"])
-app.include_router(marketplace.router, prefix="/api/v1/marketplace", tags=["Marketplace"])
+from apps.api.routers import machine_tokens
+app.include_router(machine_tokens.router, prefix="/api/v1", tags=["Machine Tokens"])
+app.include_router(marketplace.router, prefix="/api/v1/marketplace", tags=["Marketplace"], dependencies=[Depends(get_current_user)])
 app.include_router(billing.router, prefix="/api/v1/billing", tags=["Billing"])
+from apps.api.routers import entitlements as entitlements_router
+app.include_router(entitlements_router.router, prefix="/api/v1/entitlements", tags=["Entitlements"])
+app.include_router(entitlements_router.internal_router, prefix="/api/v1/internal", tags=["Internal"])
+from apps.api.routers import analytics as analytics_router
+app.include_router(analytics_router.router, prefix="/api/v1/analytics", tags=["Analytics"])
+from apps.api.routers import wallet as wallet_router
+app.include_router(wallet_router.router, prefix="/api/v1/wallet", tags=["Wallet"])
 app.include_router(business.router, prefix="/api/v1/business", tags=["Business Control Plane"])
-app.include_router(gpc.router, prefix="/api/v1/gpc", tags=["GPC"])
-app.include_router(gpc_proxy.router, prefix="/gpc-engine", tags=["GPC Proxy"])
+app.include_router(gpc.router, prefix="/api/v1/gpc", tags=["GPC"], dependencies=[Depends(get_current_user)])
 app.include_router(platform_pulse.router, prefix="/api/v1/platform", tags=["Platform"])
-app.include_router(feedback.router, prefix="/api/v1/feedback", tags=["Feedback"])
+app.include_router(feedback.router, prefix="/api/v1/feedback", tags=["Feedback"], dependencies=[Depends(get_current_user)])
 app.include_router(command_center.router, prefix="/api/v1/command-center", tags=["Command Center"])
 app.include_router(agents_router.router, prefix="/api/v1/agents", tags=["Agent Workforce"])
 app.include_router(actors_router.router, prefix="/api/v1/actors", tags=["Execution Packs"])

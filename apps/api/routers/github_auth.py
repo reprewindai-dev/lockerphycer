@@ -5,6 +5,7 @@ import json
 import base64
 import hashlib
 import hmac
+import logging
 import time
 from urllib.parse import urlencode
 
@@ -15,10 +16,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database.database import get_db
-from core.security.auth import create_access_token, create_refresh_token
+from core.security.auth import create_access_token, create_refresh_token, session_claims
 from db.models import User, UserSession, UserRole, UserStatus
 from datetime import datetime, timedelta
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 CLIENT_ID = os.environ.get("GITHUB_CLIENT_ID")
@@ -26,6 +28,20 @@ CLIENT_SECRET = os.environ.get("GITHUB_CLIENT_SECRET")
 # The callback URL we tell GitHub to return to. Must match GitHub OAuth App config.
 CALLBACK_URL = os.environ.get("GITHUB_CALLBACK_URL", "https://veklom.com/api/v1/auth/github/callback")
 SESSION_COOKIE = os.environ.get("VEKLOM_SESSION_COOKIE_NAME", "veklom_session")
+
+
+@router.get("/config-status")
+async def github_config_status():
+    present = {
+        "client_id": bool(CLIENT_ID),
+        "client_secret": bool(CLIENT_SECRET),
+        "callback_url": bool(CALLBACK_URL),
+    }
+    return {
+        "configured": all(present.values()),
+        "present": present,
+        "missing": [name for name, configured in present.items() if not configured],
+    }
 
 
 def safe_return_to(value: str | None) -> str:
@@ -134,9 +150,16 @@ async def github_callback(request: Request, db: AsyncSession = Depends(get_db)):
             user_res = await client.get("https://api.github.com/user", headers={"Authorization": f"Bearer {github_token}", "Accept": "application/vnd.github+json"})
             emails_res = await client.get("https://api.github.com/user/emails", headers={"Authorization": f"Bearer {github_token}", "Accept": "application/vnd.github+json"})
             
+            if user_res.status_code != 200:
+                logger.warning("GitHub /user returned %s", user_res.status_code)
+                return login_redirect("/login", request, "Could not retrieve GitHub user info.")
             github_user = user_res.json()
-            emails = emails_res.json()
-            
+            # /user/emails needs the GitHub App "Email addresses: read" account permission.
+            # Without it GitHub returns 403 with an error object; fall back to the profile email.
+            emails = emails_res.json() if emails_res.status_code == 200 else []
+            if emails_res.status_code != 200:
+                logger.warning("GitHub /user/emails returned %s; using profile email", emails_res.status_code)
+
             primary_email = next((e["email"] for e in emails if e.get("primary") and e.get("verified")), None)
             if not primary_email:
                 primary_email = next((e["email"] for e in emails if e.get("verified")), None)
@@ -180,8 +203,9 @@ async def github_callback(request: Request, db: AsyncSession = Depends(get_db)):
     user.last_login = datetime.utcnow()
     user.last_activity = datetime.utcnow()
     
-    access_token = create_access_token({"sub": user.email})
-    refresh_token = create_refresh_token({"sub": user.email})
+    claims = await session_claims(db, user)
+    access_token = create_access_token(claims)
+    refresh_token = create_refresh_token(claims)
 
     session = UserSession(
         user_id=user.id,

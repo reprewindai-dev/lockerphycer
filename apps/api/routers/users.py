@@ -11,6 +11,16 @@ from datetime import datetime, timedelta
 from core.database.database import get_db
 from db.models import User, UserSession, UserRole, UserStatus
 from core.security.auth import get_current_user
+
+
+def _is_admin(user: User) -> bool:
+    role = user.role.value if hasattr(user.role, "value") else str(user.role)
+    return role == UserRole.ADMIN.value
+
+
+def _require_admin(user: User) -> None:
+    if not _is_admin(user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
 from apps.api.schemas.users import UserResponse, UserCreate, UserUpdate, UserListResponse
 
 router = APIRouter()
@@ -26,7 +36,8 @@ async def list_users(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """List users with filtering and pagination"""
+    """List users with filtering and pagination (admin only)"""
+    _require_admin(current_user)
     
     # Build query
     query = select(User)
@@ -85,7 +96,10 @@ async def get_user(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
-    
+
+    if not _is_admin(current_user) and current_user.id != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
+
     return UserResponse.from_orm(user)
 
 
@@ -95,7 +109,8 @@ async def create_user(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Create new user"""
+    """Create new user (admin only)"""
+    _require_admin(current_user)
     
     # Check if user already exists
     existing_user = await db.execute(
@@ -145,14 +160,22 @@ async def update_user(
         )
     
     # Check permissions (users can only update themselves, admins can update anyone)
-    if current_user.role != UserRole.ADMIN and current_user.id != user_id:
+    if not _is_admin(current_user) and current_user.id != user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not enough permissions"
         )
     
-    # Update fields
+    # Update fields. Role, status and email decide what an account may do and
+    # who it is, so only an admin may change them; a user edits their own name.
     update_data = user_data.dict(exclude_unset=True)
+    if not _is_admin(current_user):
+        privileged = sorted(set(update_data) & {"role", "status", "email"})
+        if privileged:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Not allowed to change: {', '.join(privileged)}",
+            )
     for field, value in update_data.items():
         setattr(user, field, value)
     
@@ -179,7 +202,7 @@ async def delete_user(
         )
     
     # Check permissions
-    if current_user.role != UserRole.ADMIN and current_user.id != user_id:
+    if not _is_admin(current_user) and current_user.id != user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not enough permissions"
@@ -209,7 +232,7 @@ async def activate_user(
         )
     
     # Check permissions
-    if current_user.role != UserRole.ADMIN:
+    if not _is_admin(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not enough permissions"
@@ -238,7 +261,7 @@ async def deactivate_user(
         )
     
     # Check permissions
-    if current_user.role != UserRole.ADMIN:
+    if not _is_admin(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not enough permissions"
@@ -267,7 +290,7 @@ async def get_user_sessions(
         )
     
     # Check permissions
-    if current_user.role != UserRole.ADMIN and current_user.id != user_id:
+    if not _is_admin(current_user) and current_user.id != user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not enough permissions"
@@ -317,7 +340,7 @@ async def revoke_session(
         )
     
     # Check permissions
-    if current_user.role != UserRole.ADMIN and current_user.id != session.user_id:
+    if not _is_admin(current_user) and current_user.id != session.user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not enough permissions"

@@ -30,12 +30,18 @@ def test_health_endpoint_starts_application():
     assert response.json()["status"] == "healthy"
 
 
-def test_auth_session_lifecycle():
+def test_auth_session_lifecycle(monkeypatch):
     _set_test_env()
     from fastapi.testclient import TestClient
 
     from apps.api.main import app
+    from apps.api.routers import auth as auth_router
     from core.security.auth import create_email_verification_token
+
+    async def delivered(_user):
+        return True
+
+    monkeypatch.setattr(auth_router, "_send_verification", delivered)
 
     email = f"user-{uuid.uuid4()}@example.com"
     password = "CorrectHorseBatteryStaple1"

@@ -29,12 +29,11 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def _create_token(data: dict, token_type: str, expires_delta: timedelta) -> str:
     now = datetime.utcnow()
     payload = data.copy()
-    # Workspace identity is a security boundary consumed by CAPPO. Preserve an
-    # explicitly resolved workspace claim supplied by LockerPhycer callers;
-    # only fall back to the legacy "default" claim when no workspace identity
-    # has been resolved yet (for example before first-time onboarding).
-    if not any(payload.get(key) for key in ("workspace_id", "workspace", "tenant_id")):
-        payload["workspace"] = "default"
+    # Workspace identity is a security boundary consumed by CAPPO. A token carries
+    # a workspace claim only when LockerPhycer resolved a real one for this user
+    # (see session_claims). There is no shared fallback: a token without a
+    # workspace must fail closed at CAPPO rather than land every account in one
+    # "default" tenant.
     payload.update(
         {
             "exp": now + expires_delta,
@@ -46,6 +45,27 @@ def _create_token(data: dict, token_type: str, expires_delta: timedelta) -> str:
         }
     )
     return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
+
+
+async def session_claims(db: AsyncSession, user) -> dict:
+    """Claims for a user session: the subject, plus the workspace the user owns.
+
+    Every way of starting or refreshing a session uses this, so the workspace
+    claim does not depend on which sign-in path was taken.
+    """
+    from db.models import Workspace
+
+    claims: dict = {"sub": user.email}
+    workspace = (
+        await db.execute(
+            select(Workspace)
+            .where(Workspace.owner_id == user.email, Workspace.is_active == True)  # noqa: E712
+            .order_by(Workspace.created_at.asc())
+        )
+    ).scalars().first()
+    if workspace is not None:
+        claims["workspace_id"] = workspace.id
+    return claims
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
