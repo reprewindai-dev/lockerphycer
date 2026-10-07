@@ -6,6 +6,13 @@ os.environ.setdefault("ENVIRONMENT", "development")
 os.environ.setdefault("DEBUG", "true")
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test_lockerphycer.db"
 
+# Tests assume a fresh database (e.g. idempotency keys must not already exist).
+# A file left by an earlier run made a second run on the same checkout fail with
+# IDEMPOTENCY_CONFLICT, so start every session from a clean file.
+for _stale in ("test_lockerphycer.db", "test_lockerphycer.db-journal", "test_lockerphycer.db-wal", "test_lockerphycer.db-shm"):
+    if os.path.exists(_stale):
+        os.remove(_stale)
+
 @pytest.fixture(autouse=True)
 def mock_email_sender(monkeypatch):
     monkeypatch.setattr("apps.email.sender.send_verify_email", lambda *a, **kw: "mocked_msg_id")
