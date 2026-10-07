@@ -7,9 +7,14 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 
+from sqlalchemy import inspect
+
 from core.database.database import Base
-# Import models so they are registered with Base.metadata
+# Import every module that defines tables so they are registered with Base.metadata
 from db import models
+from apps.email import outbox  # noqa: F401
+from core.analytics import models as analytics_models  # noqa: F401
+from core.security import mfa  # noqa: F401
 import os
 from core.config.settings import settings
 
@@ -42,7 +47,22 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+def _create_base_schema_if_pristine(connection: Connection) -> None:
+    """The migration chain starts after the original tables (users, workspaces, ...),
+    which were only ever created by the app at startup. On a completely empty
+    database the chain therefore failed ("relation workspaces does not exist"), so a
+    fresh install could not run the schema step that compose runs before the app.
+    Create the model tables first, exactly as the app would, then let every
+    migration run as usual. A database that has any table is left untouched."""
+    existing = inspect(connection).get_table_names()
+    if existing:
+        return
+    target_metadata.create_all(connection)
+    connection.commit()
+
+
 def do_run_migrations(connection: Connection) -> None:
+    _create_base_schema_if_pristine(connection)
     context.configure(connection=connection, target_metadata=target_metadata)
     with context.begin_transaction():
         context.run_migrations()
