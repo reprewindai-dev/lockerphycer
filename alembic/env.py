@@ -56,6 +56,11 @@ def _create_base_schema_if_pristine(connection: Connection) -> None:
     migration run as usual. A database that has any table is left untouched."""
     existing = inspect(connection).get_table_names()
     if existing:
+        # inspect() began a transaction (SQLAlchemy 2.0 autobegin). Left open, Alembic ran
+        # every migration inside it without committing, and closing the connection rolled
+        # them all back while the log still said "Running upgrade". End it here so Alembic
+        # owns, and commits, its own transaction.
+        connection.rollback()
         return
     target_metadata.create_all(connection)
     connection.commit()
