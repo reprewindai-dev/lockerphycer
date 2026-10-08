@@ -104,3 +104,67 @@ def test_signup_without_the_field_still_works_and_records_nothing(monkeypatch):
     assert response.status_code == 201
     user, rows = _rows_and_user(email)
     assert user is not None and rows == []
+
+
+def _signed_in_without_acceptance():
+    """An existing account (as if from before acceptance was recorded) with a live session."""
+    from datetime import datetime, timedelta
+    from core.database.database import Base, SessionLocal, engine
+    from core.security.auth import create_access_token, create_refresh_token, get_password_hash, hash_token
+    from db.models import User, UserRole, UserSession, UserStatus
+
+    email = f"agree-existing-{uuid.uuid4().hex}@example.com"
+
+    async def seed():
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        async with SessionLocal() as db:
+            user = User(email=email, username=f"ex-{uuid.uuid4().hex[:10]}",
+                        hashed_password=get_password_hash(f"Pw-{uuid.uuid4().hex}"),
+                        role=UserRole.USER, status=UserStatus.ACTIVE)
+            db.add(user)
+            await db.flush()
+            token = create_access_token({"sub": email})
+            db.add(UserSession(user_id=user.id, session_token_hash=hash_token(token),
+                               refresh_token_hash=hash_token(create_refresh_token({"sub": email})),
+                               expires_at=datetime.utcnow() + timedelta(hours=1)))
+            await db.commit()
+        return token
+
+    return email, asyncio.run(seed())
+
+
+def test_signed_in_account_accepts_now_without_backfill():
+    _set_test_env()
+    from datetime import datetime, timedelta
+    from fastapi.testclient import TestClient
+    from apps.api.main import app
+    from core.agreements import CURRENT_AGREEMENTS
+
+    email, token = _signed_in_without_acceptance()
+    auth = {"authorization": f"Bearer {token}", "user-agent": "agreement-test-agent"}
+    before = datetime.utcnow() - timedelta(seconds=5)
+    with TestClient(app) as client:
+        assert client.get("/api/v1/auth/me/agreements").status_code in (401, 403)
+        first = client.get("/api/v1/auth/me/agreements", headers=auth).json()
+        assert first["accepted"] == [] and first["all_current_accepted"] is False
+
+        partial = client.post("/api/v1/auth/me/agreements", headers=auth,
+                              json={"accepted_agreements": ["terms"], "context": "sign_in_prompt"})
+        assert partial.status_code == 422
+        bad_context = client.post("/api/v1/auth/me/agreements", headers=auth,
+                                  json={"accepted_agreements": list(CURRENT_AGREEMENTS), "context": "backfill"})
+        assert bad_context.status_code == 422
+
+        done = client.post("/api/v1/auth/me/agreements", headers=auth,
+                           json={"accepted_agreements": list(CURRENT_AGREEMENTS), "context": "sign_in_prompt"})
+        assert done.status_code == 200 and done.json()["all_current_accepted"] is True
+        again = client.post("/api/v1/auth/me/agreements", headers=auth,
+                            json={"accepted_agreements": list(CURRENT_AGREEMENTS), "context": "github_signup"})
+        assert again.status_code == 200
+
+    _, rows = _rows_and_user(email)
+    # One row per document (no duplicate from the second call), stamped now, labelled by context.
+    assert {(r.document_type, r.document_version) for r in rows} == set(CURRENT_AGREEMENTS.items())
+    assert all(r.source == "sign_in_prompt" for r in rows)
+    assert all(r.accepted_at >= before for r in rows)

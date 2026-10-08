@@ -1,7 +1,7 @@
 """Authentication Schemas."""
 
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -60,6 +60,14 @@ class RegisterRequest(UserCreate):
     # Document types the person ticked (see core.agreements). When sent, all current ones are
     # required and each is recorded with the account, in the same transaction.
     accepted_agreements: Optional[list[str]] = Field(default=None, max_length=20)
+
+
+class AgreementAcceptRequest(BaseModel):
+    """A signed-in person accepting the current agreements (GitHub signup, or an account that
+    has no record of accepting them). Recorded now; nothing is back-dated."""
+
+    accepted_agreements: list[str] = Field(..., max_length=20)
+    context: Literal["github_signup", "sign_in_prompt"]
 
 
 class TokenResponse(BaseModel):

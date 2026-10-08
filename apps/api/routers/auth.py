@@ -14,6 +14,7 @@ from apps.api.schemas.auth import (
     EmailVerificationConfirm,
     EmailVerificationRequest,
     LoginRequest,
+    AgreementAcceptRequest,
     LoginResponse,
     PasswordReset,
     PasswordResetConfirm,
@@ -108,22 +109,28 @@ async def _send_reset(user: User) -> bool:
     return bool(message_id)
 
 
+def _require_all_current(document_types: list[str]) -> set[str]:
+    """The ticked document types, or 422 unless they are exactly the current agreements."""
+    accepted = set(document_types)
+    missing = sorted(set(CURRENT_AGREEMENTS) - accepted)
+    unknown = sorted(accepted - set(CURRENT_AGREEMENTS))
+    if missing or unknown:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "AGREEMENTS_INCOMPLETE: every current agreement must be accepted"
+                + (f"; missing: {', '.join(missing)}" if missing else "")
+                + (f"; unknown: {', '.join(unknown)}" if unknown else "")
+            ),
+        )
+    return accepted
+
+
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(user_data: RegisterRequest, request: Request, db: AsyncSession = Depends(get_db)):
     accepted = None
     if user_data.accepted_agreements is not None:
-        accepted = set(user_data.accepted_agreements)
-        missing = sorted(set(CURRENT_AGREEMENTS) - accepted)
-        unknown = sorted(accepted - set(CURRENT_AGREEMENTS))
-        if missing or unknown:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=(
-                    "AGREEMENTS_INCOMPLETE: every current agreement must be accepted"
-                    + (f"; missing: {', '.join(missing)}" if missing else "")
-                    + (f"; unknown: {', '.join(unknown)}" if unknown else "")
-                ),
-            )
+        accepted = _require_all_current(user_data.accepted_agreements)
     normalized_email = user_data.email.strip().lower()
     existing_user = (await db.execute(select(User).where(User.email == normalized_email))).scalars().first()
     if existing_user:
@@ -451,6 +458,48 @@ async def get_my_agreements(
     db: AsyncSession = Depends(get_db),
 ):
     """The agreements this account accepted, and whether it has accepted every current one."""
+    return await _agreements_view(db, current_user)
+
+
+@router.post("/me/agreements")
+async def accept_my_agreements(
+    payload: AgreementAcceptRequest,
+    request: Request,
+    current_user: User = Depends(resolve_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Record that this signed-in account accepts the current agreements, now.
+
+    For GitHub signups (the boxes are ticked before leaving for GitHub) and for accounts with
+    no record of accepting the current versions. Each row is stamped with this moment and its
+    context; an account's missing history is never back-filled. Already-recorded versions are
+    left as they are.
+    """
+    accepted = _require_all_current(payload.accepted_agreements)
+    existing = {
+        (r.document_type, r.document_version)
+        for r in (
+            await db.execute(select(AgreementAcceptance).where(AgreementAcceptance.user_id == current_user.id))
+        ).scalars().all()
+    }
+    ip_address, user_agent = _request_metadata(request)
+    for document_type in sorted(accepted):
+        version = CURRENT_AGREEMENTS[document_type]
+        if (document_type, version) in existing:
+            continue
+        db.add(AgreementAcceptance(
+            user_id=current_user.id,
+            document_type=document_type,
+            document_version=version,
+            source=payload.context,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        ))
+    await db.commit()
+    return await _agreements_view(db, current_user)
+
+
+async def _agreements_view(db: AsyncSession, current_user: User) -> dict:
     rows = (
         await db.execute(
             select(AgreementAcceptance)
