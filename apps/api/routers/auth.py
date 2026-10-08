@@ -39,7 +39,8 @@ from core.security.auth import (
     verify_password,
     verify_token,
 )
-from db.models import User, UserSession, UserRole, UserStatus
+from core.agreements import CURRENT_AGREEMENTS
+from db.models import AgreementAcceptance, User, UserSession, UserRole, UserStatus
 
 router = APIRouter()
 security = HTTPBearer()
@@ -108,7 +109,21 @@ async def _send_reset(user: User) -> bool:
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def register(user_data: RegisterRequest, db: AsyncSession = Depends(get_db)):
+async def register(user_data: RegisterRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    accepted = None
+    if user_data.accepted_agreements is not None:
+        accepted = set(user_data.accepted_agreements)
+        missing = sorted(set(CURRENT_AGREEMENTS) - accepted)
+        unknown = sorted(accepted - set(CURRENT_AGREEMENTS))
+        if missing or unknown:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "AGREEMENTS_INCOMPLETE: every current agreement must be accepted"
+                    + (f"; missing: {', '.join(missing)}" if missing else "")
+                    + (f"; unknown: {', '.join(unknown)}" if unknown else "")
+                ),
+            )
     normalized_email = user_data.email.strip().lower()
     existing_user = (await db.execute(select(User).where(User.email == normalized_email))).scalars().first()
     if existing_user:
@@ -126,6 +141,19 @@ async def register(user_data: RegisterRequest, db: AsyncSession = Depends(get_db
     )
     db.add(user)
     await db.flush()
+
+    # What the person accepted commits with the account, or neither does.
+    if accepted is not None:
+        ip_address, user_agent = _request_metadata(request)
+        for document_type in sorted(accepted):
+            db.add(AgreementAcceptance(
+                user_id=user.id,
+                document_type=document_type,
+                document_version=CURRENT_AGREEMENTS[document_type],
+                source="signup_form",
+                ip_address=ip_address,
+                user_agent=user_agent,
+            ))
 
     # Identity and delivery intent commit atomically. No network I/O here.
     await enqueue_identity_email(db, user, "verification")
@@ -415,6 +443,35 @@ async def get_current_user_info(
         "logout": {"href": "/api/v1/auth/logout", "method": "POST"},
     }
     return UserResponse(**payload)
+
+
+@router.get("/me/agreements")
+async def get_my_agreements(
+    current_user: User = Depends(resolve_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The agreements this account accepted, and whether it has accepted every current one."""
+    rows = (
+        await db.execute(
+            select(AgreementAcceptance)
+            .where(AgreementAcceptance.user_id == current_user.id)
+            .order_by(AgreementAcceptance.accepted_at.asc(), AgreementAcceptance.document_type.asc())
+        )
+    ).scalars().all()
+    accepted = {(r.document_type, r.document_version) for r in rows}
+    return {
+        "accepted": [
+            {
+                "document_type": r.document_type,
+                "document_version": r.document_version,
+                "source": r.source,
+                "accepted_at": r.accepted_at.isoformat() + "Z",
+            }
+            for r in rows
+        ],
+        "current": [{"document_type": t, "document_version": v} for t, v in CURRENT_AGREEMENTS.items()],
+        "all_current_accepted": all((t, v) in accepted for t, v in CURRENT_AGREEMENTS.items()),
+    }
 
 import os
 import re

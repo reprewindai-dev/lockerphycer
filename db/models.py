@@ -91,6 +91,22 @@ class User(Base):
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, onupdate=datetime.utcnow)
 
 
+class AgreementAcceptance(Base):
+    """One agreement a person accepted to open their account (core.agreements has the versions)."""
+
+    __tablename__ = "agreement_acceptances"
+    __table_args__ = (UniqueConstraint("user_id", "document_type", "document_version", name="uq_agreement_acceptance"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    document_type: Mapped[str] = mapped_column(String(40))
+    document_version: Mapped[str] = mapped_column(String(20))
+    source: Mapped[str] = mapped_column(String(40))
+    ip_address: Mapped[str | None] = mapped_column(String(64))
+    user_agent: Mapped[str | None] = mapped_column(String(512))
+    accepted_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class Workspace(Base):
     __tablename__ = "workspaces"
 

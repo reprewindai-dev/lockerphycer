@@ -57,6 +57,10 @@ class LoginRequest(BaseModel):
 class RegisterRequest(UserCreate):
     """Registration request schema."""
 
+    # Document types the person ticked (see core.agreements). When sent, all current ones are
+    # required and each is recorded with the account, in the same transaction.
+    accepted_agreements: Optional[list[str]] = Field(default=None, max_length=20)
+
 
 class TokenResponse(BaseModel):
     """Token response schema."""
