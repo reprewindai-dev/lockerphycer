@@ -36,7 +36,6 @@ MANIFEST: dict[str, Any] = {
     },
     "links": {
         "lockerphycer": "https://command.veklom.com/protocol.json",
-        "byos": "https://api.veklom.com/protocol.json",
         "capi": "https://capi.veklom.com/protocol.json",
         "cappo": "https://cappo.veklom.com/protocol.json",
         "pgl": "https://pgl.veklom.com/protocol.json",

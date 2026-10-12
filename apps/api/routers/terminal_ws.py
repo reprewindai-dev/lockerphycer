@@ -735,7 +735,7 @@ _ROUTE_MAP = {
     ("POST", "/api/v1/admin/users/{user_id}/unsuspend"): {"description": "Unsuspend user", "auth": True, "safe": False, "wired": False},
     ("GET", "/api/v1/admin/config"): {"description": "Platform configuration", "auth": True, "safe": True, "wired": False},
     ("PATCH", "/api/v1/admin/config"): {"description": "Update platform config", "auth": True, "safe": False, "wired": False},
-    # ── Runtime / BYOS ────────────────────────────────────────────────────
+    # ── Runtime ──────────────────────────────────────────────────────────
     ("GET", "/api/v1/runtime/environments"): {"description": "List runtime environments", "auth": True, "safe": True, "wired": False},
     ("POST", "/api/v1/runtime/environments"): {"description": "Create runtime environment", "auth": True, "safe": False, "wired": False},
     ("GET", "/api/v1/runtime/environments/{env_id}"): {"description": "Get runtime env detail", "auth": True, "safe": True, "wired": False},

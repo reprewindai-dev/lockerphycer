@@ -9,14 +9,15 @@ Locker Phycer is a Veklom security, key, and identity service. This repository c
 
 ### Observed current responsibility
 
-Locker Phycer currently provides the Veklom **governed security/key/identity surface**. Source includes authentication/security utilities, API routes, database/Redis configuration, protocol and dependency-health routes, and configuration for cAPI/CAPPO/Gnomledger/BYOS integration.
+Locker Phycer currently provides the Veklom **governed security/key/identity surface**. Source includes authentication/security utilities, API routes, database/Redis configuration, protocol and dependency-health routes, and configuration for cAPI/CAPPO/Gnomledger integration.
 
 This repository does **not** become the source of truth for responsibilities owned elsewhere:
 
 - **cAPI** — canonical Interlink / cross-service connection layer;
 - **CAPPO** — governance and execution authorization;
-- **Gnomledger** — durable evidence and provenance;
-- **BYOS** — tenant/workspace execution substrate.
+- **Gnomledger** — durable evidence and provenance.
+
+BYOS is decommissioned. Its user accounts were migrated into Locker Phycer (`scripts/migrate_byos_users.py`), and Locker Phycer has no runtime dependency on it.
 
 ### Target responsibility
 
@@ -58,7 +59,7 @@ lockerphycer/
 
 Start from `.env.example` and provide real deployment values through the deployment environment. In particular, do not commit production values for `SECRET_KEY`, database/Redis credentials, provider keys, cAPI/CAPPO credentials, or other secrets.
 
-Current configuration defaults include Locker Phycer `8092` and cAPI `3003`. CAPPO, Gnomledger, and BYOS integration URLs are deployment-configured and must not be promoted to `VERIFIED` merely because a URL is configured or reachable.
+Current configuration defaults include Locker Phycer `8092` and cAPI `3003`. CAPPO and Gnomledger integration URLs are deployment-configured and must not be promoted to `VERIFIED` merely because a URL is configured or reachable.
 
 ## Development
 
@@ -96,7 +97,7 @@ A production claim requires the relevant evidence chain, including as applicable
 2. application listener on canonical port `8092`;
 3. expected Locker Phycer HTTP/protocol identity;
 4. Traefik route targeting the same listener;
-5. required cAPI/CAPPO/Gnomledger/BYOS integration handshakes;
+5. required cAPI/CAPPO/Gnomledger integration handshakes;
 6. current test, dependency, and security workflow results.
 
 Until those agree, `verified_runtime_state` remains `NOT_VERIFIED`.

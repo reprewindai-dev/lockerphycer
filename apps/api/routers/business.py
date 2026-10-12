@@ -91,7 +91,7 @@ DEFAULT_COMPLIANCE_MAPPINGS = [
         "framework": "GDPR",
         "control_id": "Art. 32",
         "control_title": "Security of processing",
-        "lockerphycer_configuration": "BYOS deployment keeps telemetry and AI prompts inside customer-controlled infrastructure.",
+        "lockerphycer_configuration": "Customer-hosted deployment keeps telemetry and AI prompts inside customer-controlled infrastructure.",
         "evidence_source": "Workspace deployment configuration",
         "evidence_route": "/api/v1/workspace/{workspace_id}",
         "implementation_status": "configured",
