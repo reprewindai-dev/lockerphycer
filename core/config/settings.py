@@ -67,7 +67,6 @@ class Settings(BaseSettings):
     CAPI_API_KEY: str | None = None
     CAPPO_BACKEND_URL: str | None = None
     PGL_LEDGER_URL: str | None = None
-    BYOS_MCP_GATEWAY_URL: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

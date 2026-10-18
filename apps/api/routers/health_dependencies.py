@@ -124,7 +124,6 @@ async def dependency_health() -> dict[str, Any]:
         ("capi", getattr(settings, "CAPI_BACKEND_URL", None)),
         ("cappo", getattr(settings, "CAPPO_BACKEND_URL", None)),
         ("pgl", getattr(settings, "PGL_LEDGER_URL", None)),
-        ("byos", getattr(settings, "BYOS_MCP_GATEWAY_URL", None)),
     ):
         checks.append(await _probe_http(name, url) if url else _unconfigured(name))
 
